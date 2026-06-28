@@ -1,0 +1,25 @@
+# Atualizado via `supabase link --project-ref SEU-PROJECT-REF`
+project_id = "SEU-PROJECT-REF"
+
+[functions.generate-monthly-billings]
+verify_jwt = false
+
+[functions.asaas-webhook]
+verify_jwt = false
+
+[functions.send-billing-whatsapp]
+verify_jwt = false
+
+[functions.process-whatsapp-queue]
+verify_jwt = false
+
+[functions.reset-password]
+verify_jwt = false
+
+[functions.seed-admin-users]
+verify_jwt = false
+
+[functions.register-student]
+verify_jwt = false
+
+# record-attendance e send-whatsapp usam verify_jwt = true (padrão Supabase)

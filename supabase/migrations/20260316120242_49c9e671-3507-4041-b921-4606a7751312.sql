@@ -1,0 +1,1 @@
+ALTER VIEW public.student_financial_overview SET (security_invoker = true);

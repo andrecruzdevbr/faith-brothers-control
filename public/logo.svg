@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <circle cx="50" cy="50" r="48" fill="#0a0a0a" stroke="#dc2626" stroke-width="4"/>
+  <text x="50" y="42" text-anchor="middle" fill="#dc2626" font-family="Arial Black, sans-serif" font-size="22" font-weight="900">FB</text>
+  <text x="50" y="62" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="10" font-weight="700">BJJ</text>
+</svg>
