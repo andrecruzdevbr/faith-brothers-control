@@ -43,7 +43,7 @@ supabase secrets set ASAAS_API_KEY="sua-chave"
 supabase secrets set ASAAS_WEBHOOK_TOKEN="seu-token-webhook"
 supabase secrets set EVOLUTION_API_URL="https://sua-evolution-api"
 supabase secrets set EVOLUTION_API_KEY="sua-chave"
-supabase secrets set EVOLUTION_INSTANCE_NAME="sua-instancia"
+supabase secrets set EVOLUTION_INSTANCE_NAME="FaithBrothersControl"
 supabase secrets set SUPABASE_ANON_KEY="sua-anon-key"
 # SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são injetados automaticamente pelo Supabase
 ```

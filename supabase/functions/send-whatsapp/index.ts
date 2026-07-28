@@ -17,7 +17,7 @@ Deno.serve(async (req) => {
     }
 
     const supabase = createServiceClient();
-    const { messageId } = await queueWhatsApp({
+    const result = await queueWhatsApp({
       supabase,
       recipient: String(numero),
       body: String(mensagem),
@@ -25,7 +25,17 @@ Deno.serve(async (req) => {
       sendImmediately: true,
     });
 
-    return new Response(JSON.stringify({ success: true, messageId, number: numero }), { headers });
+    return new Response(
+      JSON.stringify({
+        success: true,
+        messageId: result.messageId,
+        number: numero,
+        sent: result.sent,
+        skipped: result.skipped ?? false,
+        reason: result.reason,
+      }),
+      { headers },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     const status = message === "Unauthorized" ? 401 : message === "Forbidden" ? 403 : 502;

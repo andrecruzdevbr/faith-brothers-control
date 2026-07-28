@@ -310,7 +310,7 @@ Deno.serve(async (req) => {
 
         if (settings.send_whatsapp_automatically) {
           stage = "queue_whatsapp";
-          await queueWhatsApp({
+          const whatsappResult = await queueWhatsApp({
             supabase,
             academyId: student.academy_id,
             studentId: student.id,
@@ -320,8 +320,19 @@ Deno.serve(async (req) => {
             messageType: "billing",
             sendImmediately: true,
           });
-          await supabase.from("billings").update({ status: "enviado_whatsapp", whatsapp_sent_at: new Date().toISOString() }).eq("id", insertedBilling.id);
-          processed.push({ studentId: student.id, billingId: insertedBilling.id, status: "sent_whatsapp" });
+          if (whatsappResult.sent) {
+            await supabase
+              .from("billings")
+              .update({ status: "enviado_whatsapp", whatsapp_sent_at: new Date().toISOString() })
+              .eq("id", insertedBilling.id);
+            processed.push({ studentId: student.id, billingId: insertedBilling.id, status: "sent_whatsapp" });
+          } else {
+            processed.push({
+              studentId: student.id,
+              billingId: insertedBilling.id,
+              status: whatsappResult.skipped ? "queued_whatsapp_send_disabled" : "generated",
+            });
+          }
         } else {
           processed.push({ studentId: student.id, billingId: insertedBilling.id, status: "generated" });
         }

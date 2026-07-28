@@ -1,5 +1,5 @@
-# Atualizado via `supabase link --project-ref SEU-PROJECT-REF`
-project_id = "SEU-PROJECT-REF"
+# Atualizado via `supabase link --project-ref wojqjxtaqjasnfhbotxi`
+project_id = "wojqjxtaqjasnfhbotxi"
 
 [functions.generate-monthly-billings]
 verify_jwt = false
@@ -22,4 +22,7 @@ verify_jwt = false
 [functions.register-student]
 verify_jwt = false
 
-# record-attendance e send-whatsapp usam verify_jwt = true (padrão Supabase)
+[functions.whatsapp-status]
+verify_jwt = true
+
+# record-attendance e send-whatsapp também usam verify_jwt = true (padrão Supabase)

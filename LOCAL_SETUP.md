@@ -159,12 +159,44 @@ SUPABASE_SERVICE_ROLE_KEY
 ALLOWED_ORIGINS          # ex.: http://localhost:8080 (dev) ou URL da Vercel (prod)
 ```
 
-**WhatsApp (Evolution API) — usado em `send-whatsapp`, `send-billing-whatsapp`, `process-whatsapp-queue`, `reset-password`:**
+**WhatsApp (Evolution API) — usado em `send-whatsapp`, `send-billing-whatsapp`, `process-whatsapp-queue`, `reset-password`, `whatsapp-status`:**
 ```
-EVOLUTION_API_URL
-EVOLUTION_API_KEY
-EVOLUTION_INSTANCE_NAME
+WHATSAPP_PROVIDER=evolution
+WHATSAPP_SEND_ENABLED=false
+WHATSAPP_EVOLUTION_BASE_URL=http://host.docker.internal:8085
+WHATSAPP_EVOLUTION_PUBLIC_URL=http://localhost:8085
+WHATSAPP_EVOLUTION_API_KEY=<chave-local>
+WHATSAPP_EVOLUTION_INSTANCE=FaithBrothersControl
 ```
+
+Modo seguro: com `WHATSAPP_SEND_ENABLED=false` o sistema enfileira mensagens e consulta status, mas **não envia** WhatsApp real via Evolution.
+
+Instâncias Evolution:
+- **`FaithBrothersControl`** — instância final atual do Faith Brothers (usar esta).
+- `faithbrothers-teste` — instância antiga (não usar).
+- `faithbrothers-teste-2` — instância temporária de diagnóstico (não usar).
+- **`agroraiz-teste`** — pertence ao AgroRaiz; **não mexer**.
+
+URLs:
+- Edge Functions em Docker → use `WHATSAPP_EVOLUTION_BASE_URL=http://host.docker.internal:8085`
+- Cloud / secrets Supabase → VPS `http://2.24.108.128:8080` (`WHATSAPP_EVOLUTION_BASE_URL` / `PUBLIC_URL`)
+- Navegador / QR local → use `http://localhost:8085`
+- Conectar QR da instância Faith Brothers:
+  `GET http://localhost:8085/instance/connect/FaithBrothersControl`
+- Status: Edge Function `whatsapp-status` (admin) ou
+  `GET .../instance/connectionState/FaithBrothersControl`
+
+Scripts:
+- Check VPS: `powershell -ExecutionPolicy Bypass -File .\scripts\check-whatsapp-evolution-vps.ps1`
+- Deploy functions: `powershell -ExecutionPolicy Bypass -File .\scripts\deploy-whatsapp-functions.ps1`
+  (o script **para** se o projeto Supabase estiver `INACTIVE`)
+
+**Não apague nem altere a instância `agroraiz-teste` (outro projeto).**
+**Não use `docker compose down -v` nem apague volumes da Evolution.**
+**Não configure Supabase Cloud com `host.docker.internal`.**
+**Mantenha `WHATSAPP_SEND_ENABLED=false` até validar status + envio controlado.**
+
+Fallback legado ainda aceito: `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE_NAME`.
 
 **PIX / Cobranças (Asaas) — usado em `generate-monthly-billings`, `asaas-webhook`:**
 ```

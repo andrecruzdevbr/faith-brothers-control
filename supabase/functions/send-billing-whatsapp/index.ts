@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
       "OSS!",
     ].join("\n");
 
-    await queueWhatsApp({
+    const queueResult = await queueWhatsApp({
       supabase,
       academyId: billing.academy_id,
       studentId: billing.student_id,
@@ -62,12 +62,23 @@ Deno.serve(async (req) => {
       sendImmediately: true,
     });
 
-    await supabase
-      .from("billings")
-      .update({ status: "enviado_whatsapp", whatsapp_sent_at: new Date().toISOString() })
-      .eq("id", billingId);
+    if (queueResult.sent) {
+      await supabase
+        .from("billings")
+        .update({ status: "enviado_whatsapp", whatsapp_sent_at: new Date().toISOString() })
+        .eq("id", billingId);
+    }
 
-    return new Response(JSON.stringify({ ok: true }), { headers });
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        sent: queueResult.sent,
+        skipped: queueResult.skipped ?? false,
+        reason: queueResult.reason,
+        messageId: queueResult.messageId,
+      }),
+      { headers },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     const status = message === "Unauthorized" ? 401 : message === "Forbidden" ? 403 : 500;

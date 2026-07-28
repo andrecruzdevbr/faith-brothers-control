@@ -58,7 +58,7 @@ Ou use `supabase db push` com CLI.
 
 ### Edge Functions
 
-Deploy das 8 functions em `supabase/functions/`:
+Deploy das functions em `supabase/functions/`:
 
 | Function | Descrição |
 |----------|-----------|
@@ -69,7 +69,9 @@ Deploy das 8 functions em `supabase/functions/`:
 | `record-attendance` | Presença via QR |
 | `reset-password` | OTP persistente |
 | `send-whatsapp` | Envio admin |
+| `whatsapp-status` | Status da instância Evolution (admin) |
 | `seed-admin-users` | Seed DEV (desabilitado em produção) |
+| `register-student` | Cadastro público de aluno |
 
 ### Secrets (Supabase Dashboard)
 
@@ -77,7 +79,10 @@ Deploy das 8 functions em `supabase/functions/`:
 |--------|-----|
 | `SUPABASE_SERVICE_ROLE_KEY` | Edge Functions |
 | `SUPABASE_ANON_KEY` | Validação JWT |
-| `EVOLUTION_API_*` | WhatsApp |
+| `WHATSAPP_PROVIDER` | `evolution` |
+| `WHATSAPP_SEND_ENABLED` | `false` = modo seguro (sem envio real) |
+| `WHATSAPP_EVOLUTION_*` | Base URL, API key e instância Evolution |
+| `EVOLUTION_API_*` | Fallback legado WhatsApp |
 | `ASAAS_API_KEY` | Cobranças |
 | `ASAAS_WEBHOOK_TOKEN` | Webhook |
 | `BILLING_CRON_SECRET` | Cron billing + fila WhatsApp |
@@ -85,6 +90,20 @@ Deploy das 8 functions em `supabase/functions/`:
 | `ALLOW_DEV_SEED` | `true` apenas em DEV |
 | `SEED_DEV_SECRET` | Protege seed-admin-users |
 | `STAFF_SEED_JSON` | JSON array de staff (ver `supabase/dev/staff-seed.example.json`) |
+
+### Evolution local (modo seguro)
+
+Com `WHATSAPP_SEND_ENABLED=false`, o app pode enfileirar mensagens e consultar status, mas **não envia** WhatsApp automaticamente.
+
+- Instância final: `FaithBrothersControl` (`WHATSAPP_EVOLUTION_INSTANCE`)
+- Docker/Edge local → `WHATSAPP_EVOLUTION_BASE_URL=http://host.docker.internal:8085`
+- Cloud/VPS → `WHATSAPP_EVOLUTION_BASE_URL=http://2.24.108.128:8080` (secrets no Supabase; nunca no frontend)
+- Navegador/QR local → `http://localhost:8085/instance/connect/FaithBrothersControl`
+- Antigas (não usar): `faithbrothers-teste`, `faithbrothers-teste-2`
+- Não alterar/apagar a instância `agroraiz-teste` (outro projeto / AgroRaiz)
+- Deploy das functions WhatsApp: `scripts/deploy-whatsapp-functions.ps1` (para se o projeto estiver `INACTIVE`)
+- Check VPS: `scripts/check-whatsapp-evolution-vps.ps1`
+- Detalhes: ver `LOCAL_SETUP.md`
 
 ### Cron externo (free tier)
 
