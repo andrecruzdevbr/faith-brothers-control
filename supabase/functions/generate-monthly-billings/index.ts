@@ -4,8 +4,13 @@ import { getEnv } from "../_shared/env.ts";
 import { queueWhatsApp } from "../_shared/whatsapp.ts";
 import {
   type AcademyBillingSettings,
+  type BillingProcessedEntry,
   getBillingSettings,
   getMissingBillingSkipStatus,
+  hasValidStudentWhatsapp,
+  resolveSendWhatsApp,
+  shouldSkipBeforeIssueDay,
+  summarizeBillingProcessed,
 } from "../_shared/billing-settings.ts";
 import {
   type BillingProcessStage,
@@ -45,6 +50,12 @@ type StudentRow = {
       | AcademyBillingSettings[]
       | null;
   } | null;
+};
+
+type GenerateBody = {
+  studentId?: string;
+  force?: boolean;
+  sendWhatsApp?: boolean;
 };
 
 function monthReference(date = new Date()) {
@@ -151,7 +162,13 @@ async function ensureAsaasCustomer(
   return customer.id as string;
 }
 
-function buildBillingMessage(student: StudentRow, planName: string, amount: number, dueDate: string, boletoUrl: string | null) {
+function buildBillingMessage(
+  student: StudentRow,
+  planName: string,
+  amount: number,
+  dueDate: string,
+  boletoUrl: string | null,
+) {
   return [
     `${student.academies?.name ?? "Faith Brothers BJJ"}`,
     "",
@@ -168,6 +185,47 @@ function buildBillingMessage(student: StudentRow, planName: string, amount: numb
   ].filter(Boolean).join("\n");
 }
 
+async function dispatchBillingWhatsApp(params: {
+  supabase: ReturnType<typeof createServiceClient>;
+  student: StudentRow;
+  billingId: string;
+  planName: string;
+  amount: number;
+  dueDate: string;
+  boletoUrl: string | null;
+}): Promise<"sent_whatsapp" | "queued_whatsapp_send_disabled" | "skipped_missing_whatsapp"> {
+  if (!hasValidStudentWhatsapp(params.student.whatsapp)) {
+    return "skipped_missing_whatsapp";
+  }
+
+  const whatsappResult = await queueWhatsApp({
+    supabase: params.supabase,
+    academyId: params.student.academy_id,
+    studentId: params.student.id,
+    billingId: params.billingId,
+    recipient: params.student.whatsapp,
+    body: buildBillingMessage(
+      params.student,
+      params.planName,
+      params.amount,
+      params.dueDate,
+      params.boletoUrl,
+    ),
+    messageType: "billing",
+    sendImmediately: true,
+  });
+
+  if (whatsappResult.sent) {
+    await params.supabase
+      .from("billings")
+      .update({ status: "enviado_whatsapp", whatsapp_sent_at: new Date().toISOString() })
+      .eq("id", params.billingId);
+    return "sent_whatsapp";
+  }
+
+  return whatsappResult.skipped ? "queued_whatsapp_send_disabled" : "queued_whatsapp_send_disabled";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleOptions(req);
   const headers = { ...corsHeaders(req), "Content-Type": "application/json" };
@@ -180,6 +238,20 @@ Deno.serve(async (req) => {
     const cronSecret = getEnv("BILLING_CRON_SECRET");
     const isCronCall = req.headers.get("x-cron-secret") === cronSecret;
     let academyIdFilter: string | null = null;
+    let body: GenerateBody = {};
+
+    if (req.method === "POST") {
+      try {
+        body = (await req.json()) as GenerateBody;
+      } catch {
+        body = {};
+      }
+    }
+
+    const force = body.force === true;
+    const studentIdFilter = typeof body.studentId === "string" && body.studentId ? body.studentId : null;
+    const sendWhatsAppOverride =
+      typeof body.sendWhatsApp === "boolean" ? body.sendWhatsApp : undefined;
 
     if (!isCronCall) {
       if (!authHeader?.startsWith("Bearer ")) {
@@ -209,40 +281,72 @@ Deno.serve(async (req) => {
       .not("plan_id", "is", null);
 
     if (academyIdFilter) studentsQuery = studentsQuery.eq("academy_id", academyIdFilter);
+    if (studentIdFilter) studentsQuery = studentsQuery.eq("id", studentIdFilter);
 
     const { data: students, error: studentsError } = await studentsQuery;
     if (studentsError) throw new Error(studentsError.message);
 
-    const processed: Array<{
-      studentId: string;
-      billingId?: string;
-      status: string;
-      stage?: BillingProcessStage;
-      error?: string;
-    }> = [];
+    const processed: BillingProcessedEntry[] = [];
+    const whatsappHandledBillingIds = new Set<string>();
 
     for (const student of (students ?? []) as unknown as StudentRow[]) {
-      const plan = student.plans!;
-      const settings = getBillingSettings(student.academies?.academy_billing_settings)!;
+      const plan = student.plans;
+      const settings = getBillingSettings(student.academies?.academy_billing_settings);
       const skipStatus = getMissingBillingSkipStatus(!!plan, !!settings);
-      if (skipStatus) {
-        processed.push({ studentId: student.id, status: skipStatus });
+      if (skipStatus || !plan || !settings) {
+        processed.push({ studentId: student.id, status: skipStatus ?? "skipped_missing_billing_settings" });
         continue;
       }
-      if (today < settings.boleto_issue_day) {
+
+      if (shouldSkipBeforeIssueDay(today, settings.boleto_issue_day, force)) {
         processed.push({ studentId: student.id, status: "skipped_before_issue_day" });
         continue;
       }
 
+      if (!hasValidStudentWhatsapp(student.whatsapp)) {
+        processed.push({ studentId: student.id, status: "skipped_missing_whatsapp" });
+        continue;
+      }
+
+      const sendWhatsApp = resolveSendWhatsApp(settings.send_whatsapp_automatically, sendWhatsAppOverride);
+
       const { data: existingBilling } = await supabase
         .from("billings")
-        .select("id")
+        .select("id, status, boleto_url, amount, due_date, plan_id, plans(name)")
         .eq("student_id", student.id)
         .eq("reference_month", referenceMonth)
         .maybeSingle();
 
       if (existingBilling) {
         processed.push({ studentId: student.id, billingId: existingBilling.id, status: "already_exists" });
+
+        if (
+          sendWhatsApp &&
+          existingBilling.status !== "pago" &&
+          existingBilling.status !== "cancelado" &&
+          existingBilling.boleto_url &&
+          (existingBilling.status === "pendente" || existingBilling.status === "gerado")
+        ) {
+          const planName =
+            (Array.isArray(existingBilling.plans)
+              ? existingBilling.plans[0]?.name
+              : (existingBilling.plans as { name?: string } | null)?.name) ?? plan.name;
+          const waStatus = await dispatchBillingWhatsApp({
+            supabase,
+            student,
+            billingId: existingBilling.id,
+            planName,
+            amount: Number(existingBilling.amount),
+            dueDate: String(existingBilling.due_date),
+            boletoUrl: existingBilling.boleto_url,
+          });
+          whatsappHandledBillingIds.add(existingBilling.id);
+          processed.push({
+            studentId: student.id,
+            billingId: existingBilling.id,
+            status: waStatus === "sent_whatsapp" ? "whatsapp_sent" : waStatus === "skipped_missing_whatsapp" ? "whatsapp_skipped_missing_recipient" : "whatsapp_skipped",
+          });
+        }
         continue;
       }
 
@@ -297,7 +401,7 @@ Deno.serve(async (req) => {
             amount: plan.monthly_price,
             issue_date: issueDate,
             due_date: dueDate,
-            status: settings.send_whatsapp_automatically ? "gerado" : "pendente",
+            status: sendWhatsApp ? "gerado" : "pendente",
             asaas_payment_id: payment.id,
             boleto_url: payment.boletoUrl,
             invoice_number: payment.invoiceNumber,
@@ -308,29 +412,32 @@ Deno.serve(async (req) => {
         if (billingInsertError || !insertedBilling) throw new Error(billingInsertError?.message ?? "insert failed");
         insertedBillingId = insertedBilling.id;
 
-        if (settings.send_whatsapp_automatically) {
+        if (sendWhatsApp) {
           stage = "queue_whatsapp";
-          const whatsappResult = await queueWhatsApp({
+          const waStatus = await dispatchBillingWhatsApp({
             supabase,
-            academyId: student.academy_id,
-            studentId: student.id,
+            student,
             billingId: insertedBilling.id,
-            recipient: student.whatsapp,
-            body: buildBillingMessage(student, plan.name, plan.monthly_price, dueDate, insertedBilling.boleto_url),
-            messageType: "billing",
-            sendImmediately: true,
+            planName: plan.name,
+            amount: plan.monthly_price,
+            dueDate,
+            boletoUrl: insertedBilling.boleto_url,
           });
-          if (whatsappResult.sent) {
-            await supabase
-              .from("billings")
-              .update({ status: "enviado_whatsapp", whatsapp_sent_at: new Date().toISOString() })
-              .eq("id", insertedBilling.id);
+          whatsappHandledBillingIds.add(insertedBilling.id);
+          if (waStatus === "sent_whatsapp") {
             processed.push({ studentId: student.id, billingId: insertedBilling.id, status: "sent_whatsapp" });
+          } else if (waStatus === "skipped_missing_whatsapp") {
+            processed.push({ studentId: student.id, billingId: insertedBilling.id, status: "generated" });
+            processed.push({
+              studentId: student.id,
+              billingId: insertedBilling.id,
+              status: "whatsapp_skipped_missing_recipient",
+            });
           } else {
             processed.push({
               studentId: student.id,
               billingId: insertedBilling.id,
-              status: whatsappResult.skipped ? "queued_whatsapp_send_disabled" : "generated",
+              status: "queued_whatsapp_send_disabled",
             });
           }
         } else {
@@ -356,7 +463,21 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ success: true, processed }), { headers });
+    const summary = summarizeBillingProcessed(processed);
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        referenceMonth,
+        dueDay: 15,
+        force,
+        sendWhatsApp: sendWhatsAppOverride ?? null,
+        summary,
+        processed,
+        whatsappHandledCount: whatsappHandledBillingIds.size,
+      }),
+      { headers },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     const status = message === "Unauthorized" ? 401 : message === "Forbidden" ? 403 : 500;
