@@ -15,7 +15,7 @@ export function Layout() {
               <Menu className="h-5 w-5" />
             </SidebarTrigger>
             <span className="text-xs text-muted-foreground font-body hidden md:block">
-              Faith Brothers BJJ — Ouro Branco MG
+              Faith Brothers Control
             </span>
             <AuthActions />
           </header>

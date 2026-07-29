@@ -1,4 +1,4 @@
-# Faith Brothers Hub — Checklist de Deploy (Produção)
+# Faith Brothers Control — Checklist de Deploy (Produção)
 
 Guia operacional para deploy em **Supabase** (backend) + **Vercel** (frontend).
 

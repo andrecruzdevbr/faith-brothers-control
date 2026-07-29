@@ -1,4 +1,4 @@
-# Faith Brothers Hub — v1.0
+# Faith Brothers Control — v1.0
 
 Sistema de gestão da academia **Faith Brothers BJJ**: alunos, presenças QR, graduação, financeiro (Asaas + PIX/Boleto), WhatsApp (Evolution API) e dashboard administrativo.
 

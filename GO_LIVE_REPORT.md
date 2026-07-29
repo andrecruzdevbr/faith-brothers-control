@@ -1,4 +1,4 @@
-# Faith Brothers Hub — Go Live Report
+# Faith Brothers Control — Go Live Report
 
 **Versão:** 1.0.0
 **Data da validação:** 27 de junho de 2026
@@ -9,7 +9,7 @@
 
 ## Resumo Executivo
 
-O **Faith Brothers Hub v1.0** foi submetido à validação completa de go-live cobrindo frontend, backend (Supabase + Edge Functions), banco de dados, segurança, integrações, build e documentação.
+O **Faith Brothers Control v1.0** foi submetido à validação completa de go-live cobrindo frontend, backend (Supabase + Edge Functions), banco de dados, segurança, integrações, build e documentação.
 
 **Resultado do pipeline:**
 
@@ -424,7 +424,7 @@ Riscos normais de qualquer software em produção:
 
 ## Conclusão
 
-O Faith Brothers Hub v1.0 passou na validação técnica de go-live. O código compila, testa e lint sem erros. A arquitetura de segurança (RLS, RBAC, OTP, remoção de trigger de escalação) está consistente. Um **bloqueador crítico** na presença por QR foi identificado e corrigido.
+O Faith Brothers Control v1.0 passou na validação técnica de go-live. O código compila, testa e lint sem erros. A arquitetura de segurança (RLS, RBAC, OTP, remoção de trigger de escalação) está consistente. Um **bloqueador crítico** na presença por QR foi identificado e corrigido.
 
 O sistema **pode entrar em produção** após:
 

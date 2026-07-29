@@ -1,4 +1,4 @@
-# Faith Brothers Hub — Plano de Teste Manual
+# Faith Brothers Control — Plano de Teste Manual
 
 Execute após deploy em Supabase + Vercel. Marque cada item ao concluir.
 

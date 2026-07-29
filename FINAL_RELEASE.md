@@ -1,4 +1,4 @@
-# Faith Brothers Hub — Entrega Final v1.0
+# Faith Brothers Control — Entrega Final v1.0
 
 **Projeto:** Sistema de gestão da academia Faith Brothers BJJ
 **Versão:** 1.0.0
@@ -9,7 +9,7 @@
 
 ## Resumo do projeto
 
-O **Faith Brothers Hub** é uma plataforma web completa para gestão de academias de Jiu-Jitsu, desenvolvida exclusivamente para a **Faith Brothers BJJ** (Ouro Branco, MG). O sistema cobre:
+O **Faith Brothers Control** é uma plataforma web completa para gestão de academias de Jiu-Jitsu, desenvolvida exclusivamente para a **Faith Brothers BJJ** (Ouro Branco, MG). O sistema cobre:
 
 - Cadastro e aprovação de alunos
 - Controle de presença via **QR Code**
@@ -513,7 +513,7 @@ Login: WhatsApp (só dígitos) + senha → email sintético `{whatsapp}@wa.faith
 
 ## Versão final
 
-**Faith Brothers Hub v1.0.0**
+**Faith Brothers Control v1.0.0**
 Entrega: 27/06/2026
 Repositório pronto para implantação após execução do checklist operacional de produção.
 
