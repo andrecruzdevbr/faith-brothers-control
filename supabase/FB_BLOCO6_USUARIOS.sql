@@ -4,16 +4,19 @@
 -- Senha padrão: faithbrothers2026
 -- ================================================================
 
-INSERT INTO public.academies (id, name, slug, city, state, address, finance_contact_name, finance_whatsapp)
+INSERT INTO public.academies (id, name, slug, city, state, address, finance_contact_name, finance_whatsapp, bank_name, bank_code, bank_branch, bank_account)
 VALUES (
   '00000000-0000-0000-0000-000000000001',
   'Faith Brothers BJJ', 'faith-brothers', 'Ouro Branco', 'MG',
-  'Av. Patriótica N 210', 'Felipe Nogueira', '31993082330'
+  'Av. Patriótica N 210', 'Ramon Pereira de São José', '31987540515',
+  'Nubank / Nu PJ', '260', '2372-8', '42762-4'
 )
 ON CONFLICT (slug) DO UPDATE SET
   name = EXCLUDED.name, city = EXCLUDED.city, state = EXCLUDED.state,
   address = EXCLUDED.address, finance_contact_name = EXCLUDED.finance_contact_name,
-  finance_whatsapp = EXCLUDED.finance_whatsapp;
+  finance_whatsapp = EXCLUDED.finance_whatsapp,
+  bank_name = EXCLUDED.bank_name, bank_code = EXCLUDED.bank_code,
+  bank_branch = EXCLUDED.bank_branch, bank_account = EXCLUDED.bank_account;
 
 INSERT INTO public.academy_billing_settings (academy_id, boleto_issue_day, boleto_due_day, send_whatsapp_automatically)
 VALUES ('00000000-0000-0000-0000-000000000001', 12, 16, true)

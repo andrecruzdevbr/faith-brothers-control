@@ -25,6 +25,8 @@ export type Database = {
           created_at: string
           finance_contact_name: string
           finance_whatsapp: string
+          finance_document_display: string | null
+          asaas_environment_label: string
           id: string
           name: string
           slug: string
@@ -41,6 +43,8 @@ export type Database = {
           created_at?: string
           finance_contact_name?: string
           finance_whatsapp?: string
+          finance_document_display?: string | null
+          asaas_environment_label?: string
           id?: string
           name: string
           slug: string
@@ -57,6 +61,8 @@ export type Database = {
           created_at?: string
           finance_contact_name?: string
           finance_whatsapp?: string
+          finance_document_display?: string | null
+          asaas_environment_label?: string
           id?: string
           name?: string
           slug?: string

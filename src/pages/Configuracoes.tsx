@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAcademySettings, useAcademyId } from "@/hooks/useQueries";
 import { callEdgeFunction, formatDateBR } from "@/lib/api";
 import { formatWhatsapp } from "@/lib/whatsapp-auth";
+import { formatAsaasEnvironmentLabel } from "@/lib/academy-finance";
 import { supabase } from "@/integrations/supabase/client";
 
 type WhatsAppMessage = {
@@ -191,6 +192,12 @@ const Configuracoes = () => {
                 <span className="text-foreground font-medium">{academy.finance_contact_name}</span>
               </div>
             )}
+            {academy?.finance_document_display && (
+              <div>
+                <span className="text-muted-foreground">CNPJ/MEI:</span>{" "}
+                <span className="text-foreground font-medium">{academy.finance_document_display}</span>
+              </div>
+            )}
           </div>
           <div className="space-y-3">
             {billing?.boleto_due_day != null && (
@@ -229,6 +236,14 @@ const Configuracoes = () => {
                   {academy.bank_branch ? `Ag ${academy.bank_branch}` : ""}
                   {academy.bank_branch && academy.bank_account ? " • " : ""}
                   {academy.bank_account ? `Cc ${academy.bank_account}` : ""}
+                </span>
+              </div>
+            )}
+            {academy?.asaas_environment_label && (
+              <div>
+                <span className="text-muted-foreground">Asaas:</span>{" "}
+                <span className="text-foreground font-medium">
+                  {formatAsaasEnvironmentLabel(academy.asaas_environment_label)}
                 </span>
               </div>
             )}

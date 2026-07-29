@@ -44,6 +44,12 @@ import {
   type BillingErrorDetail,
   type BillingPeriod,
 } from "@/lib/billing";
+import { formatWhatsapp } from "@/lib/whatsapp-auth";
+import {
+  ASAAS_WEBHOOK_URL,
+  formatAsaasEnvironmentLabel,
+  formatFinanceDocumentDisplay,
+} from "@/lib/academy-finance";
 
 type BillingRunSummary = {
   created: number;
@@ -716,13 +722,29 @@ const Financeiro = () => {
             </div>
             <p className="text-xs text-muted-foreground mt-3">
               Responsável: {academy?.finance_contact_name || "—"}
-              {academy?.finance_whatsapp && ` • WhatsApp: ${academy.finance_whatsapp}`}
+              {academy?.finance_whatsapp
+                ? ` • WhatsApp: ${formatWhatsapp(academy.finance_whatsapp)}`
+                : ""}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              CNPJ/MEI: {formatFinanceDocumentDisplay(academy?.finance_document_display)}
             </p>
             {billingSettings && (
               <p className="text-xs text-muted-foreground mt-1">
                 {formatBillingSettingsLabel(billingSettings)}
               </p>
             )}
+            <p className="text-xs text-muted-foreground mt-1">
+              {formatAsaasEnvironmentLabel(academy?.asaas_environment_label)}
+              {" • "}
+              API Key somente em Supabase Secrets (nunca no app)
+            </p>
+            <p className="text-xs text-muted-foreground mt-1 break-all">
+              Webhook produção: {ASAAS_WEBHOOK_URL}
+            </p>
+            <p className="text-[11px] text-muted-foreground/80 mt-2">
+              Conta bancária acima é referência de repasse PJ. O recebimento Asaas segue a conta dona da API Key de produção.
+            </p>
           </>
         )}
       </motion.div>
