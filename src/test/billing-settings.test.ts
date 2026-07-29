@@ -7,6 +7,10 @@ import {
   resolveSendWhatsApp,
   shouldSkipBeforeIssueDay,
   summarizeBillingProcessed,
+  resolveDefaultBillingPeriod,
+  resolveBillingPeriod,
+  isDueDateBeforeToday,
+  buildBillingPeriod,
 } from "../../supabase/functions/_shared/billing-settings.ts";
 import { summarizeBillingRunText, formatBillingErrorDetail, collectBillingErrors } from "@/lib/billing";
 
@@ -67,6 +71,49 @@ describe("billing due day 15 and manual force", () => {
     expect(hasValidStudentWhatsapp("5531999999999")).toBe(true);
     expect(hasValidStudentWhatsapp("")).toBe(false);
     expect(hasValidStudentWhatsapp("123")).toBe(false);
+  });
+});
+
+describe("billing reference month after due day", () => {
+  it("uses current month when today is on or before due day 15", () => {
+    const period = resolveDefaultBillingPeriod(new Date("2026-07-15T15:00:00-03:00"), 15, 1);
+    expect(period.referenceMonth).toBe("2026-07-01");
+    expect(period.dueDate).toBe("2026-07-15");
+    expect(period.labelPt).toBe("Julho/2026");
+  });
+
+  it("uses next month when today is after due day 15 (29/07/2026 → 15/08/2026)", () => {
+    const period = resolveDefaultBillingPeriod(new Date("2026-07-29T12:00:00-03:00"), 15, 1);
+    expect(period.referenceMonth).toBe("2026-08-01");
+    expect(period.dueDate).toBe("2026-08-15");
+    expect(period.dueDateLabelPt).toBe("15/08/2026");
+    expect(period.labelPt).toBe("Agosto/2026");
+  });
+
+  it("does not allow past due dates without adjustment", () => {
+    const july = buildBillingPeriod(2026, 6, 15, 1);
+    expect(isDueDateBeforeToday(july.dueDate, new Date("2026-07-29T12:00:00-03:00"))).toBe(true);
+
+    const resolved = resolveBillingPeriod({
+      now: new Date("2026-07-29T12:00:00-03:00"),
+      dueDay: 15,
+      issueDay: 1,
+      referenceMonth: "2026-07-01",
+      rejectPast: false,
+    });
+    expect(resolved.adjusted).toBe(true);
+    expect(resolved.period.dueDate).toBe("2026-08-15");
+  });
+
+  it("rejects past reference when rejectPast=true", () => {
+    const resolved = resolveBillingPeriod({
+      now: new Date("2026-07-29T12:00:00-03:00"),
+      dueDay: 15,
+      referenceMonth: "2026-07-01",
+      rejectPast: true,
+    });
+    expect(resolved.error).toBeTruthy();
+    expect(resolved.error).toContain("anterior a hoje");
   });
 });
 

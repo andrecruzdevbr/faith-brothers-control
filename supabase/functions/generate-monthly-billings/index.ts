@@ -7,7 +7,9 @@ import {
   type BillingProcessedEntry,
   getBillingSettings,
   getMissingBillingSkipStatus,
+  getBrazilCivilDate,
   hasValidStudentWhatsapp,
+  resolveBillingPeriod,
   resolveSendWhatsApp,
   shouldSkipBeforeIssueDay,
   summarizeBillingProcessed,
@@ -61,15 +63,9 @@ type GenerateBody = {
   student_id?: string;
   force?: boolean;
   sendWhatsApp?: boolean;
+  /** YYYY-MM-01 ou YYYY-MM — se omitido, usa próxima referência válida (dia 15). */
+  referenceMonth?: string;
 };
-
-function monthReference(date = new Date()) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)).toISOString().slice(0, 10);
-}
-
-function formatDate(year: number, monthIndex: number, day: number) {
-  return new Date(Date.UTC(year, monthIndex, day)).toISOString().slice(0, 10);
-}
 
 function getAsaasBaseUrl(): string {
   const raw = getEnv("ASAAS_BASE_URL").trim();
@@ -267,6 +263,10 @@ Deno.serve(async (req) => {
     const studentIdFilter = resolveStudentIdFilter(body);
     const sendWhatsAppOverride =
       typeof body.sendWhatsApp === "boolean" ? body.sendWhatsApp : undefined;
+    const requestedReferenceMonth =
+      typeof body.referenceMonth === "string" && body.referenceMonth.trim()
+        ? body.referenceMonth.trim()
+        : null;
 
     if (!isCronCall) {
       if (!authHeader?.startsWith("Bearer ")) {
@@ -277,10 +277,25 @@ Deno.serve(async (req) => {
 
     const supabase = createServiceClient();
     const now = new Date();
-    const year = now.getUTCFullYear();
-    const monthIndex = now.getUTCMonth();
-    const referenceMonth = monthReference(now);
-    const today = now.getUTCDate();
+    const today = getBrazilCivilDate(now).day;
+
+    // Período padrão (dia 15). Pode ser sobrescrito por aluno se settings diferirem.
+    const defaultPeriodResult = resolveBillingPeriod({
+      now,
+      dueDay: 15,
+      issueDay: 1,
+      referenceMonth: requestedReferenceMonth,
+      rejectPast: false,
+    });
+    if (defaultPeriodResult.error) {
+      return new Response(
+        JSON.stringify({ success: false, error: defaultPeriodResult.error }),
+        { status: 400, headers },
+      );
+    }
+
+    let runPeriod = defaultPeriodResult.period;
+    let referenceAdjusted = defaultPeriodResult.adjusted;
 
     let studentsQuery = supabase
       .from("students")
@@ -330,6 +345,28 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      const periodResult = resolveBillingPeriod({
+        now,
+        dueDay: settings.boleto_due_day,
+        issueDay: settings.boleto_issue_day,
+        referenceMonth: requestedReferenceMonth ?? runPeriod.referenceMonth,
+        rejectPast: false,
+      });
+      if (periodResult.error) {
+        processed.push(
+          buildFailedProcessedEntry({
+            studentId: student.id,
+            studentName: student.full_name,
+            stage: "create_asaas_payment",
+            error: periodResult.error,
+          }),
+        );
+        continue;
+      }
+      const period = periodResult.period;
+      runPeriod = period;
+      if (periodResult.adjusted) referenceAdjusted = true;
+
       if (shouldSkipBeforeIssueDay(today, settings.boleto_issue_day, force)) {
         processed.push({
           studentId: student.id,
@@ -367,7 +404,7 @@ Deno.serve(async (req) => {
         .from("billings")
         .select("id, status, boleto_url, amount, due_date, plan_id, plans(name)")
         .eq("student_id", student.id)
-        .eq("reference_month", referenceMonth)
+        .eq("reference_month", period.referenceMonth)
         .maybeSingle();
 
       if (existingBilling) {
@@ -431,9 +468,9 @@ Deno.serve(async (req) => {
         const customerId = await ensureAsaasCustomer(supabase, student, taxId, (next) => {
           stage = next;
         });
-        const dueDate = formatDate(year, monthIndex, settings.boleto_due_day);
-        const issueDate = formatDate(year, monthIndex, settings.boleto_issue_day);
-        const externalReference = buildExternalReference(student.id, referenceMonth);
+        const dueDate = period.dueDate;
+        const issueDate = period.issueDate;
+        const externalReference = buildExternalReference(student.id, period.referenceMonth);
 
         stage = "find_existing_asaas_payment";
         const lookupResponse = await asaasRequest(buildAsaasPaymentsLookupPath(externalReference));
@@ -448,7 +485,7 @@ Deno.serve(async (req) => {
               billingType: "UNDEFINED",
               value: planAmount,
               dueDate,
-              description: `${academy?.name ?? "Academia"} - ${plan.name} - ${referenceMonth}`,
+              description: `${academy?.name ?? "Academia"} - ${plan.name} - ${period.referenceMonth}`,
               externalReference,
             }),
           });
@@ -466,7 +503,7 @@ Deno.serve(async (req) => {
             academy_id: student.academy_id,
             student_id: student.id,
             plan_id: plan.id,
-            reference_month: referenceMonth,
+            reference_month: period.referenceMonth,
             amount: planAmount,
             issue_date: issueDate,
             due_date: dueDate,
@@ -562,8 +599,12 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        referenceMonth,
-        dueDay: settingsDueDayFallback(processed, students as StudentRow[] | null),
+        referenceMonth: runPeriod.referenceMonth,
+        dueDate: runPeriod.dueDate,
+        dueDay: runPeriod.dueDay,
+        referenceLabel: runPeriod.labelPt,
+        dueDateLabel: runPeriod.dueDateLabelPt,
+        referenceAdjusted,
         force,
         sendWhatsApp: sendWhatsAppOverride ?? null,
         studentId: studentIdFilter,
@@ -580,13 +621,3 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ success: false, error: message }), { status, headers });
   }
 });
-
-function settingsDueDayFallback(
-  _processed: BillingProcessedEntry[],
-  students: StudentRow[] | null,
-): number {
-  const first = students?.[0];
-  const academy = unwrapRelation(first?.academies ?? null);
-  const settings = getBillingSettings(academy?.academy_billing_settings);
-  return settings?.boleto_due_day ?? 15;
-}

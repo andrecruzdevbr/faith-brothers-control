@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -31,8 +31,19 @@ import {
 import { callEdgeFunction, formatCurrency, formatDateBR } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BILLING_STATUS_LABELS, PAGE_SIZE } from "@/lib/constants";
-import { formatBillingSettingsLabel, summarizeBillingRunText, collectBillingErrors, formatBillingErrorDetail, type BillingErrorDetail } from "@/lib/billing";
+import {
+  formatBillingSettingsLabel,
+  summarizeBillingRunText,
+  collectBillingErrors,
+  formatBillingErrorDetail,
+  listSelectableBillingPeriods,
+  resolveDefaultBillingPeriod,
+  isDueDateBeforeToday,
+  type BillingErrorDetail,
+  type BillingPeriod,
+} from "@/lib/billing";
 
 type BillingRunSummary = {
   created: number;
@@ -50,6 +61,10 @@ type BillingRunSummary = {
 type GenerateResponse = {
   success: boolean;
   referenceMonth?: string;
+  dueDate?: string;
+  referenceLabel?: string;
+  dueDateLabel?: string;
+  referenceAdjusted?: boolean;
   summary?: BillingRunSummary;
   processed?: BillingErrorDetail[];
   errors?: BillingErrorDetail[];
@@ -77,11 +92,6 @@ const statusStyles: Record<string, { label: string; class: string }> = {
   falhou: { label: "Falhou", class: "text-destructive bg-destructive/10" },
 };
 
-function currentReferenceMonth() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)).toISOString().slice(0, 10);
-}
-
 function summarizeText(summary: BillingRunSummary): string[] {
   return summarizeBillingRunText(summary);
 }
@@ -103,13 +113,42 @@ const Financeiro = () => {
   const [summaryLines, setSummaryLines] = useState<string[]>([]);
   const [summaryErrors, setSummaryErrors] = useState<BillingErrorDetail[]>([]);
   const [resendBillingId, setResendBillingId] = useState<string | null>(null);
-
-  const referenceMonth = useMemo(() => currentReferenceMonth(), []);
+  const [selectedReferenceMonth, setSelectedReferenceMonth] = useState<string>("");
 
   const { data: stats, isLoading: loadingStats } = useDashboardStats();
   const { data: plans, isLoading: loadingPlans } = usePlans();
   const { data: settings, isLoading: loadingSettings } = useAcademySettings();
   const { data: billingsData, isLoading: loadingBillings, isFetching } = useBillings(page, statusFilter);
+
+  const dueDay = settings?.billing?.boleto_due_day ?? 15;
+  const issueDay = settings?.billing?.boleto_issue_day ?? 1;
+
+  const periodOptions = useMemo(
+    () => listSelectableBillingPeriods(new Date(), dueDay, issueDay, 3),
+    [dueDay, issueDay],
+  );
+
+  const defaultPeriod = useMemo(
+    () => resolveDefaultBillingPeriod(new Date(), dueDay, issueDay),
+    [dueDay, issueDay],
+  );
+
+  useEffect(() => {
+    if (!selectedReferenceMonth) {
+      setSelectedReferenceMonth(defaultPeriod.referenceMonth);
+      return;
+    }
+    const stillValid = periodOptions.some((p) => p.referenceMonth === selectedReferenceMonth);
+    if (!stillValid) setSelectedReferenceMonth(defaultPeriod.referenceMonth);
+  }, [defaultPeriod.referenceMonth, periodOptions, selectedReferenceMonth]);
+
+  const selectedPeriod: BillingPeriod = useMemo(() => {
+    const match = periodOptions.find((p) => p.referenceMonth === selectedReferenceMonth);
+    return match ?? defaultPeriod;
+  }, [periodOptions, selectedReferenceMonth, defaultPeriod]);
+
+  const referenceMonth = selectedPeriod.referenceMonth;
+  const dueDatePast = isDueDateBeforeToday(selectedPeriod.dueDate);
 
   const billings = billingsData?.billings ?? [];
   const total = billingsData?.total ?? 0;
@@ -198,24 +237,41 @@ const Financeiro = () => {
     summary?: BillingRunSummary,
     processed?: BillingErrorDetail[],
     errors?: BillingErrorDetail[],
+    meta?: { referenceLabel?: string; dueDateLabel?: string },
   ) => {
     if (!summary) return;
-    setSummaryLines(summarizeText(summary));
+    const lines = summarizeText(summary);
+    if (meta?.referenceLabel) lines.unshift(`Referência: ${meta.referenceLabel}`);
+    if (meta?.dueDateLabel) lines.splice(1, 0, `Vencimento: ${meta.dueDateLabel}`);
+    setSummaryLines(lines);
     setSummaryErrors(collectBillingErrors(processed, errors));
     setSummaryOpen(true);
   };
 
   const runGenerate = async (sendWhatsApp: boolean) => {
+    if (dueDatePast) {
+      toast({
+        title: "Vencimento inválido",
+        description: `O vencimento ${selectedPeriod.dueDateLabelPt} já passou. Selecione ${defaultPeriod.labelPt}.`,
+        variant: "destructive",
+      });
+      setConfirmAction(null);
+      return;
+    }
     setBusyAction(sendWhatsApp ? "generate_send" : "generate");
     try {
       const data = await callEdgeFunction<GenerateResponse>("generate-monthly-billings", {
         force: true,
         sendWhatsApp,
+        referenceMonth,
       });
-      showSummary(data.summary, data.processed, data.errors);
+      showSummary(data.summary, data.processed, data.errors, {
+        referenceLabel: data.referenceLabel ?? selectedPeriod.labelPt,
+        dueDateLabel: data.dueDateLabel ?? selectedPeriod.dueDateLabelPt,
+      });
       toast({
         title: sendWhatsApp ? "Cobranças geradas e envio processado" : "Cobranças geradas",
-        description: `Referência ${data.referenceMonth ?? referenceMonth}`,
+        description: `Referência ${data.referenceLabel ?? selectedPeriod.labelPt} • Vencimento ${data.dueDateLabel ?? selectedPeriod.dueDateLabelPt}`,
       });
       await invalidateFinance();
     } catch (e) {
@@ -255,6 +311,14 @@ const Financeiro = () => {
   };
 
   const handleGenerateIndividual = async (studentId: string) => {
+    if (dueDatePast) {
+      toast({
+        title: "Vencimento inválido",
+        description: `O vencimento ${selectedPeriod.dueDateLabelPt} já passou. Selecione ${defaultPeriod.labelPt}.`,
+        variant: "destructive",
+      });
+      return;
+    }
     setBusyAction(`student:${studentId}`);
     try {
       const data = await callEdgeFunction<GenerateResponse>("generate-monthly-billings", {
@@ -262,9 +326,16 @@ const Financeiro = () => {
         sendWhatsApp: false,
         studentId,
         student_id: studentId,
+        referenceMonth,
       });
-      showSummary(data.summary, data.processed, data.errors);
-      toast({ title: "Cobrança individual processada" });
+      showSummary(data.summary, data.processed, data.errors, {
+        referenceLabel: data.referenceLabel ?? selectedPeriod.labelPt,
+        dueDateLabel: data.dueDateLabel ?? selectedPeriod.dueDateLabelPt,
+      });
+      toast({
+        title: "Cobrança individual processada",
+        description: `Referência ${data.referenceLabel ?? selectedPeriod.labelPt} • Vencimento ${data.dueDateLabel ?? selectedPeriod.dueDateLabelPt}`,
+      });
       await invalidateFinance();
     } catch (e) {
       toast({
@@ -322,26 +393,55 @@ const Financeiro = () => {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-2xl md:text-3xl font-display font-bold tracking-wider">FINANCEIRO</h1>
-          <p className="text-sm text-muted-foreground mt-1">Gestão de cobranças e planos • Vencimento dia 15</p>
+          <p className="text-sm text-muted-foreground mt-1">Gestão de cobranças e planos • Vencimento dia {dueDay}</p>
+          <p className="text-sm text-foreground mt-2">
+            Referência: <span className="font-medium">{selectedPeriod.labelPt}</span>
+            {" • "}
+            Vencimento: <span className="font-medium">{selectedPeriod.dueDateLabelPt}</span>
+          </p>
+          {dueDatePast && (
+            <p className="text-xs text-destructive mt-1">
+              Este vencimento já passou. Selecione {defaultPeriod.labelPt} ou um mês futuro.
+            </p>
+          )}
         </div>
         {isAdmin && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col items-stretch sm:items-end gap-3">
+            <div className="w-full sm:w-64">
+              <label className="text-xs text-muted-foreground mb-1 block">Mês de referência</label>
+              <Select
+                value={selectedPeriod.referenceMonth}
+                onValueChange={setSelectedReferenceMonth}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o mês" />
+                </SelectTrigger>
+                <SelectContent>
+                  {periodOptions.map((option) => (
+                    <SelectItem key={option.referenceMonth} value={option.referenceMonth}>
+                      {option.labelPt} — vence {option.dueDateLabelPt}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-wrap gap-2 justify-end">
             <Button
               variant="outline"
               className="gap-2"
-              disabled={!!busyAction}
+              disabled={!!busyAction || dueDatePast}
               onClick={() => setConfirmAction("generate")}
             >
               {busyAction === "generate" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />}
-              Gerar cobranças do mês
+              Gerar cobranças de {selectedPeriod.labelPt}
             </Button>
             <Button
               className="gradient-primary text-primary-foreground gap-2"
-              disabled={!!busyAction}
+              disabled={!!busyAction || dueDatePast}
               onClick={() => setConfirmAction("generate_send")}
             >
               {busyAction === "generate_send" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              Gerar e enviar cobranças do mês
+              Gerar e enviar {selectedPeriod.labelPt}
             </Button>
             <Button
               variant="outline"
@@ -356,6 +456,7 @@ const Financeiro = () => {
               )}
               Enviar WhatsApp para pendentes
             </Button>
+            </div>
           </div>
         )}
       </div>
@@ -409,7 +510,7 @@ const Financeiro = () => {
           <div className="p-5 border-b border-border">
             <h3 className="font-display text-lg font-bold tracking-wider">GERAR COBRANÇA INDIVIDUAL</h3>
             <p className="text-xs text-muted-foreground mt-1">
-              Alunos ativos com plano e sem cobrança no mês ({formatDateBR(referenceMonth)}). Vencimento dia 15.
+              Alunos ativos com plano e sem cobrança em {selectedPeriod.labelPt}. Vencimento: {selectedPeriod.dueDateLabelPt}.
             </p>
           </div>
           {loadingEligible ? (
@@ -446,7 +547,7 @@ const Financeiro = () => {
                             size="sm"
                             variant="outline"
                             className="h-8 gap-1"
-                            disabled={!!busyAction}
+                            disabled={!!busyAction || dueDatePast}
                             onClick={() => void handleGenerateIndividual(student.id)}
                           >
                             {busyAction === `student:${student.id}` ? (
@@ -629,9 +730,9 @@ const Financeiro = () => {
       <AlertDialog open={confirmAction === "generate"} onOpenChange={(open) => !open && setConfirmAction(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Gerar cobranças do mês</AlertDialogTitle>
+            <AlertDialogTitle>Gerar cobranças de {selectedPeriod.labelPt}</AlertDialogTitle>
             <AlertDialogDescription>
-              Gerar cobranças com vencimento no dia 15 para alunos ativos com plano e CPF/CNPJ?
+              Gerar cobranças com vencimento em {selectedPeriod.dueDateLabelPt} para alunos ativos com plano e CPF/CNPJ?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -644,9 +745,9 @@ const Financeiro = () => {
       <AlertDialog open={confirmAction === "generate_send"} onOpenChange={(open) => !open && setConfirmAction(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Gerar e enviar cobranças</AlertDialogTitle>
+            <AlertDialogTitle>Gerar e enviar {selectedPeriod.labelPt}</AlertDialogTitle>
             <AlertDialogDescription>
-              Gerar cobranças e enviar pelo WhatsApp para alunos ativos?
+              Gerar cobranças com vencimento em {selectedPeriod.dueDateLabelPt} e enviar pelo WhatsApp para alunos ativos?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

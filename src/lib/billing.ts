@@ -61,3 +61,12 @@ export function collectBillingErrors(
   if (Array.isArray(errors) && errors.length > 0) return errors;
   return (processed ?? []).filter((row) => row.status === "failed");
 }
+
+export {
+  buildBillingPeriod,
+  isDueDateBeforeToday,
+  listSelectableBillingPeriods,
+  resolveBillingPeriod,
+  resolveDefaultBillingPeriod,
+  type BillingPeriod,
+} from "../../supabase/functions/_shared/billing-settings.ts";

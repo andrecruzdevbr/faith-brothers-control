@@ -153,3 +153,198 @@ export function formatBillingSettingsLabel(settings: {
     settings.send_whatsapp_automatically ? " • Envio automático ativo" : " • Envio manual"
   }`;
 }
+
+const MONTH_NAMES_PT = [
+  "Janeiro",
+  "Fevereiro",
+  "Março",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro",
+] as const;
+
+export type BillingPeriod = {
+  referenceMonth: string;
+  dueDate: string;
+  issueDate: string;
+  year: number;
+  monthIndex: number;
+  dueDay: number;
+  labelPt: string;
+  dueDateLabelPt: string;
+};
+
+export function formatUtcDate(year: number, monthIndex: number, day: number): string {
+  return new Date(Date.UTC(year, monthIndex, day)).toISOString().slice(0, 10);
+}
+
+export function formatDateLabelPt(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-");
+  if (!y || !m || !d) return isoDate;
+  return `${d}/${m}/${y}`;
+}
+
+export function formatMonthLabelPt(year: number, monthIndex: number): string {
+  return `${MONTH_NAMES_PT[monthIndex] ?? "Mês"}/${year}`;
+}
+
+/** Civil date in America/Sao_Paulo (academia BR). */
+export function getBrazilCivilDate(now = new Date()): {
+  year: number;
+  monthIndex: number;
+  day: number;
+} {
+  const formatted = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+  const [yearStr, monthStr, dayStr] = formatted.split("-");
+  return {
+    year: Number(yearStr),
+    monthIndex: Number(monthStr) - 1,
+    day: Number(dayStr),
+  };
+}
+
+export function buildBillingPeriod(
+  year: number,
+  monthIndex: number,
+  dueDay: number,
+  issueDay = 1,
+): BillingPeriod {
+  const safeDue = Math.min(Math.max(dueDay, 1), 28);
+  const safeIssue = Math.min(Math.max(issueDay, 1), safeDue);
+  const referenceMonth = formatUtcDate(year, monthIndex, 1);
+  const dueDate = formatUtcDate(year, monthIndex, safeDue);
+  const issueDate = formatUtcDate(year, monthIndex, safeIssue);
+  return {
+    referenceMonth,
+    dueDate,
+    issueDate,
+    year,
+    monthIndex,
+    dueDay: safeDue,
+    labelPt: formatMonthLabelPt(year, monthIndex),
+    dueDateLabelPt: formatDateLabelPt(dueDate),
+  };
+}
+
+/**
+ * Antes/no dia de vencimento → mês atual.
+ * Depois do dia de vencimento → próximo mês.
+ * Ex.: 29/07/2026 + dueDay 15 → Agosto/2026 (15/08/2026).
+ */
+export function resolveDefaultBillingPeriod(
+  now: Date,
+  dueDay: number,
+  issueDay = 1,
+): BillingPeriod {
+  const { year, monthIndex, day } = getBrazilCivilDate(now);
+  let y = year;
+  let m = monthIndex;
+  if (day > dueDay) {
+    m += 1;
+    if (m > 11) {
+      m = 0;
+      y += 1;
+    }
+  }
+  return buildBillingPeriod(y, m, dueDay, issueDay);
+}
+
+export function parseReferenceMonthInput(
+  input: string | null | undefined,
+): { year: number; monthIndex: number } | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+  const match = trimmed.match(/^(\d{4})-(\d{2})(?:-(\d{2}))?$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) return null;
+  return { year, monthIndex };
+}
+
+export function isDueDateBeforeToday(dueDate: string, now = new Date()): boolean {
+  const { year, monthIndex, day } = getBrazilCivilDate(now);
+  const todayIso = formatUtcDate(year, monthIndex, day);
+  return dueDate < todayIso;
+}
+
+export type ResolveBillingPeriodResult = {
+  period: BillingPeriod;
+  adjusted: boolean;
+  error?: string;
+};
+
+/**
+ * Resolve período para geração.
+ * - Sem referenceMonth: próxima referência válida (não gera vencimento no passado).
+ * - Com referenceMonth no passado: ajusta para a próxima válida (manual) ou erro se rejectPast=true.
+ */
+export function resolveBillingPeriod(params: {
+  now?: Date;
+  dueDay: number;
+  issueDay?: number;
+  referenceMonth?: string | null;
+  rejectPast?: boolean;
+}): ResolveBillingPeriodResult {
+  const now = params.now ?? new Date();
+  const issueDay = params.issueDay ?? 1;
+  const dueDay = params.dueDay;
+
+  const parsed = parseReferenceMonthInput(params.referenceMonth);
+  if (!parsed) {
+    return {
+      period: resolveDefaultBillingPeriod(now, dueDay, issueDay),
+      adjusted: false,
+    };
+  }
+
+  const requested = buildBillingPeriod(parsed.year, parsed.monthIndex, dueDay, issueDay);
+  if (!isDueDateBeforeToday(requested.dueDate, now)) {
+    return { period: requested, adjusted: false };
+  }
+
+  if (params.rejectPast) {
+    return {
+      period: requested,
+      adjusted: false,
+      error: `Vencimento ${requested.dueDateLabelPt} é anterior a hoje. Escolha ${resolveDefaultBillingPeriod(now, dueDay, issueDay).labelPt} ou um mês futuro.`,
+    };
+  }
+
+  return {
+    period: resolveDefaultBillingPeriod(now, dueDay, issueDay),
+    adjusted: true,
+  };
+}
+
+/** Opções de seletor: mês atual (se ainda válido), próximo e futuros. */
+export function listSelectableBillingPeriods(
+  now: Date,
+  dueDay: number,
+  issueDay = 1,
+  futureMonths = 3,
+): BillingPeriod[] {
+  const defaultPeriod = resolveDefaultBillingPeriod(now, dueDay, issueDay);
+  const options: BillingPeriod[] = [defaultPeriod];
+  for (let i = 1; i <= futureMonths; i++) {
+    let y = defaultPeriod.year;
+    let m = defaultPeriod.monthIndex + i;
+    while (m > 11) {
+      m -= 12;
+      y += 1;
+    }
+    options.push(buildBillingPeriod(y, m, dueDay, issueDay));
+  }
+  return options;
+}
