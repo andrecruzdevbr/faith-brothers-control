@@ -6,6 +6,7 @@ import {
   pickExistingAsaasPayment,
   shouldCreateAsaasPayment,
   shouldUpdateAsaasCustomer,
+  unwrapRelation,
 } from "../../supabase/functions/_shared/asaas-billing.ts";
 
 describe("asaas-billing idempotency", () => {
@@ -46,14 +47,17 @@ describe("buildFailedProcessedEntry", () => {
     expect(
       buildFailedProcessedEntry({
         studentId: "ced46b69-4293-48dd-b04f-300bb835150f",
+        studentName: "João Silva",
         stage: "create_asaas_payment",
         error: new Error("Asaas [400]: CPF 52998224725 inválido"),
       }),
-    ).toEqual({
+    ).toMatchObject({
       studentId: "ced46b69-4293-48dd-b04f-300bb835150f",
+      studentName: "João Silva",
       status: "failed",
       stage: "create_asaas_payment",
       error: "Asaas [400]: CPF [documento] inválido",
+      asaasHttpStatus: 400,
     });
   });
 
@@ -66,5 +70,19 @@ describe("buildFailedProcessedEntry", () => {
     });
     expect(result.billingId).toBe("billing-uuid");
     expect(result.stage).toBe("queue_whatsapp");
+  });
+
+  it("unwraps PostgREST relation arrays", () => {
+    expect(unwrapRelation({ id: "1", name: "Plano", monthly_price: 210 })).toEqual({
+      id: "1",
+      name: "Plano",
+      monthly_price: 210,
+    });
+    expect(unwrapRelation([{ id: "1", name: "Plano", monthly_price: 210 }])).toEqual({
+      id: "1",
+      name: "Plano",
+      monthly_price: 210,
+    });
+    expect(unwrapRelation([])).toBeNull();
   });
 });

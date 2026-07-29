@@ -32,7 +32,7 @@ import { callEdgeFunction, formatCurrency, formatDateBR } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { BILLING_STATUS_LABELS, PAGE_SIZE } from "@/lib/constants";
-import { formatBillingSettingsLabel, summarizeBillingRunText } from "@/lib/billing";
+import { formatBillingSettingsLabel, summarizeBillingRunText, collectBillingErrors, formatBillingErrorDetail, type BillingErrorDetail } from "@/lib/billing";
 
 type BillingRunSummary = {
   created: number;
@@ -51,12 +51,16 @@ type GenerateResponse = {
   success: boolean;
   referenceMonth?: string;
   summary?: BillingRunSummary;
+  processed?: BillingErrorDetail[];
+  errors?: BillingErrorDetail[];
   error?: string;
 };
 
 type SendResponse = {
   ok: boolean;
   summary?: BillingRunSummary;
+  processed?: BillingErrorDetail[];
+  errors?: BillingErrorDetail[];
   sent?: boolean;
   skipped?: boolean;
   reason?: string;
@@ -97,6 +101,7 @@ const Financeiro = () => {
   >(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summaryLines, setSummaryLines] = useState<string[]>([]);
+  const [summaryErrors, setSummaryErrors] = useState<BillingErrorDetail[]>([]);
   const [resendBillingId, setResendBillingId] = useState<string | null>(null);
 
   const referenceMonth = useMemo(() => currentReferenceMonth(), []);
@@ -189,9 +194,14 @@ const Financeiro = () => {
     ]);
   };
 
-  const showSummary = (summary?: BillingRunSummary) => {
+  const showSummary = (
+    summary?: BillingRunSummary,
+    processed?: BillingErrorDetail[],
+    errors?: BillingErrorDetail[],
+  ) => {
     if (!summary) return;
     setSummaryLines(summarizeText(summary));
+    setSummaryErrors(collectBillingErrors(processed, errors));
     setSummaryOpen(true);
   };
 
@@ -202,7 +212,7 @@ const Financeiro = () => {
         force: true,
         sendWhatsApp,
       });
-      showSummary(data.summary);
+      showSummary(data.summary, data.processed, data.errors);
       toast({
         title: sendWhatsApp ? "Cobranças geradas e envio processado" : "Cobranças geradas",
         description: `Referência ${data.referenceMonth ?? referenceMonth}`,
@@ -226,7 +236,7 @@ const Financeiro = () => {
       const data = await callEdgeFunction<SendResponse>("send-billing-whatsapp", {
         scope: "pending_month",
       });
-      showSummary(data.summary);
+      showSummary(data.summary, data.processed, data.errors);
       toast({
         title: "Envio coletivo processado",
         description: "Cobranças pendentes do mês foram processadas.",
@@ -251,8 +261,9 @@ const Financeiro = () => {
         force: true,
         sendWhatsApp: false,
         studentId,
+        student_id: studentId,
       });
-      showSummary(data.summary);
+      showSummary(data.summary, data.processed, data.errors);
       toast({ title: "Cobrança individual processada" });
       await invalidateFinance();
     } catch (e) {
@@ -689,6 +700,21 @@ const Financeiro = () => {
               <li key={line}>{line}</li>
             ))}
           </ul>
+          {summaryErrors.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <p className="text-sm font-medium text-destructive">Detalhes dos erros</p>
+              <ul className="space-y-2 text-xs text-muted-foreground max-h-56 overflow-y-auto">
+                {summaryErrors.map((err) => (
+                  <li
+                    key={`${err.studentId}-${err.stage ?? "x"}-${err.error ?? ""}`}
+                    className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-foreground"
+                  >
+                    {formatBillingErrorDetail(err)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

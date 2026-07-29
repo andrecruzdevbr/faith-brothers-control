@@ -8,7 +8,7 @@ import {
   shouldSkipBeforeIssueDay,
   summarizeBillingProcessed,
 } from "../../supabase/functions/_shared/billing-settings.ts";
-import { summarizeBillingRunText } from "@/lib/billing";
+import { summarizeBillingRunText, formatBillingErrorDetail, collectBillingErrors } from "@/lib/billing";
 
 const sampleSettings = {
   boleto_issue_day: 1,
@@ -107,5 +107,30 @@ describe("summarizeBillingProcessed", () => {
     });
     expect(lines[0]).toContain("criadas: 1");
     expect(lines.some((l) => l.includes("CPF/CNPJ"))).toBe(true);
+  });
+
+  it("formats safe error details for the modal", () => {
+    const line = formatBillingErrorDetail({
+      studentId: "ced46b69-4293-48dd-b04f-300bb835150f",
+      studentName: "Maria",
+      status: "failed",
+      stage: "create_asaas_payment",
+      error: "Asaas [400]: CPF [documento] inválido",
+      asaasHttpStatus: 400,
+      asaasDescription: "CPF [documento] inválido",
+    });
+    expect(line).toContain("Maria");
+    expect(line).toContain("create_asaas_payment");
+    expect(line).toContain("400");
+    expect(line).not.toContain("52998224725");
+  });
+
+  it("collects failed rows from processed payload", () => {
+    const errors = collectBillingErrors([
+      { studentId: "1", status: "generated" },
+      { studentId: "2", status: "failed", stage: "ensure_customer", error: "falhou" },
+    ]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].studentId).toBe("2");
   });
 });

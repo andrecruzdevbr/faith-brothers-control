@@ -6,10 +6,13 @@ export type AcademyBillingSettings = {
 
 export type BillingProcessedEntry = {
   studentId: string;
+  studentName?: string;
   billingId?: string;
   status: string;
   stage?: string;
   error?: string;
+  asaasHttpStatus?: number;
+  asaasDescription?: string;
 };
 
 export type BillingRunSummary = {

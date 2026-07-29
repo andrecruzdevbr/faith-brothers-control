@@ -49,9 +49,13 @@ export function maskTaxId(raw: string | null | undefined): string | null {
   return null;
 }
 
-/** Remove CPF/CNPJ patterns from error text before logging or API responses. */
+/** Remove CPF/CNPJ patterns and secrets from error text before logging or API responses. */
 export function sanitizeBillingError(message: string): string {
   return message
+    .replace(/Bearer\s+[A-Za-z0-9._\-]+/gi, "Bearer [REDACTED]")
+    .replace(/access_token["\s:=]+[^"\s,}]+/gi, "access_token=[REDACTED]")
+    .replace(/apikey["\s:=]+[^"\s,}]+/gi, "apikey=[REDACTED]")
+    .replace(/service_role["\s:=]+[^"\s,}]+/gi, "service_role=[REDACTED]")
     .replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, "[documento]")
     .replace(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g, "[documento]")
     .replace(/\b\d{11}\b/g, "[documento]")

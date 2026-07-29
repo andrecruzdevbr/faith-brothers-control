@@ -8,6 +8,16 @@ export function formatBillingSettingsLabel(settings: {
   }`;
 }
 
+export type BillingErrorDetail = {
+  studentId: string;
+  studentName?: string;
+  status: string;
+  stage?: string;
+  error?: string;
+  asaasHttpStatus?: number;
+  asaasDescription?: string;
+};
+
 export function summarizeBillingRunText(summary: {
   created: number;
   alreadyExists: number;
@@ -28,4 +38,26 @@ export function summarizeBillingRunText(summary: {
     `Mensagens ignoradas/skipped: ${summary.whatsappSkipped}`,
     `Erros: ${summary.errors}`,
   ];
+}
+
+export function formatBillingErrorDetail(entry: BillingErrorDetail): string {
+  const name = entry.studentName?.trim() || "Aluno";
+  const stage = entry.stage ? `etapa ${entry.stage}` : "etapa desconhecida";
+  const asaas =
+    entry.asaasHttpStatus != null
+      ? `Asaas HTTP ${entry.asaasHttpStatus}${entry.asaasDescription ? ` — ${entry.asaasDescription}` : ""}`
+      : null;
+  const message = entry.asaasDescription
+    ? entry.asaasDescription
+    : entry.error?.trim() || "Erro desconhecido";
+  const main = asaas ?? message;
+  return `${name} (${entry.studentId.slice(0, 8)}…) — ${stage}: ${main}`;
+}
+
+export function collectBillingErrors(
+  processed?: BillingErrorDetail[] | null,
+  errors?: BillingErrorDetail[] | null,
+): BillingErrorDetail[] {
+  if (Array.isArray(errors) && errors.length > 0) return errors;
+  return (processed ?? []).filter((row) => row.status === "failed");
 }

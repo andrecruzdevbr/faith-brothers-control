@@ -43,8 +43,43 @@ export function isValidTaxId(raw: string): boolean {
 
 export function sanitizeBillingError(message: string): string {
   return message
+    .replace(/Bearer\s+[A-Za-z0-9._\-]+/gi, "Bearer [REDACTED]")
+    .replace(/access_token["\s:=]+[^"\s,}]+/gi, "access_token=[REDACTED]")
+    .replace(/apikey["\s:=]+[^"\s,}]+/gi, "apikey=[REDACTED]")
+    .replace(/service_role["\s:=]+[^"\s,}]+/gi, "service_role=[REDACTED]")
     .replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, "[documento]")
     .replace(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g, "[documento]")
     .replace(/\b\d{11}\b/g, "[documento]")
     .replace(/\b\d{14}\b/g, "[documento]");
+}
+
+/** Extrai status HTTP e descrição amigável de erro Asaas (sem documento completo). */
+export function extractAsaasErrorDetails(rawMessage: string): {
+  asaasHttpStatus?: number;
+  asaasDescription?: string;
+} {
+  const statusMatch = rawMessage.match(/Asaas\s*\[(\d{3})\]/i);
+  const asaasHttpStatus = statusMatch ? Number(statusMatch[1]) : undefined;
+
+  let asaasDescription: string | undefined;
+  const jsonStart = rawMessage.indexOf("{");
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(rawMessage.slice(jsonStart)) as {
+        errors?: Array<{ description?: string; code?: string }>;
+        message?: string;
+      };
+      const first = parsed.errors?.[0];
+      const desc = first?.description ?? parsed.message;
+      if (desc) asaasDescription = sanitizeBillingError(String(desc));
+    } catch {
+      // ignore JSON parse failures
+    }
+  }
+
+  if (!asaasDescription && asaasHttpStatus) {
+    asaasDescription = sanitizeBillingError(rawMessage.replace(/^Asaas\s*\[\d{3}\]:\s*/i, "").slice(0, 240));
+  }
+
+  return { asaasHttpStatus, asaasDescription };
 }

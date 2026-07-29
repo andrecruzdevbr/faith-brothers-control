@@ -1,4 +1,4 @@
-import { sanitizeBillingError } from "./tax-id.ts";
+import { extractAsaasErrorDetails, sanitizeBillingError } from "./tax-id.ts";
 
 export type BillingProcessStage =
   | "ensure_customer"
@@ -6,14 +6,18 @@ export type BillingProcessStage =
   | "find_existing_asaas_payment"
   | "create_asaas_payment"
   | "insert_local_billing"
-  | "queue_whatsapp";
+  | "queue_whatsapp"
+  | "resolve_student";
 
 export type ProcessedBillingFailure = {
   studentId: string;
+  studentName?: string;
   status: "failed";
   stage: BillingProcessStage;
   error: string;
   billingId?: string;
+  asaasHttpStatus?: number;
+  asaasDescription?: string;
 };
 
 export function buildExternalReference(studentId: string, referenceMonth: string): string {
@@ -46,18 +50,23 @@ export function shouldUpdateAsaasCustomer(existingCpfCnpj: string, nextCpfCnpj: 
 
 export function buildFailedProcessedEntry(params: {
   studentId: string;
+  studentName?: string;
   stage: BillingProcessStage;
   error: unknown;
   billingId?: string;
 }): ProcessedBillingFailure {
   const raw = params.error instanceof Error ? params.error.message : String(params.error);
   const message = sanitizeBillingError(raw);
+  const asaas = extractAsaasErrorDetails(raw);
   return {
     studentId: params.studentId,
+    ...(params.studentName ? { studentName: params.studentName } : {}),
     status: "failed",
     stage: params.stage,
     error: message,
     ...(params.billingId ? { billingId: params.billingId } : {}),
+    ...(asaas.asaasHttpStatus != null ? { asaasHttpStatus: asaas.asaasHttpStatus } : {}),
+    ...(asaas.asaasDescription ? { asaasDescription: asaas.asaasDescription } : {}),
   };
 }
 
@@ -73,4 +82,11 @@ export function getAsaasPaymentFields(payment: Record<string, unknown>) {
     invoiceNumber,
     boletoUrl: bankSlipUrl ?? invoiceUrl,
   };
+}
+
+/** PostgREST may return FK embeds as object or single-item array. */
+export function unwrapRelation<T>(value: T | T[] | null | undefined): T | null {
+  if (value == null) return null;
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value;
 }

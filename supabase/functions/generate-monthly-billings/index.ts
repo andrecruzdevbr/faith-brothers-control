@@ -21,11 +21,23 @@ import {
   pickExistingAsaasPayment,
   shouldCreateAsaasPayment,
   shouldUpdateAsaasCustomer,
+  unwrapRelation,
 } from "../_shared/asaas-billing.ts";
 import { normalizeTaxId, sanitizeBillingError } from "../_shared/tax-id.ts";
 
 type StudentBillingProfile = {
   tax_id: string | null;
+};
+
+type PlanEmbed = { id: string; name: string; monthly_price: number };
+type AcademyEmbed = {
+  name: string;
+  finance_contact_name: string;
+  finance_whatsapp: string;
+  academy_billing_settings:
+    | AcademyBillingSettings
+    | AcademyBillingSettings[]
+    | null;
 };
 
 type StudentRow = {
@@ -36,24 +48,17 @@ type StudentRow = {
   whatsapp: string;
   asaas_customer_id: string | null;
   plan_id: string | null;
-  plans: { id: string; name: string; monthly_price: number } | null;
+  plans: PlanEmbed | PlanEmbed[] | null;
   student_billing_profiles:
     | StudentBillingProfile
     | StudentBillingProfile[]
     | null;
-  academies: {
-    name: string;
-    finance_contact_name: string;
-    finance_whatsapp: string;
-    academy_billing_settings:
-      | AcademyBillingSettings
-      | AcademyBillingSettings[]
-      | null;
-  } | null;
+  academies: AcademyEmbed | AcademyEmbed[] | null;
 };
 
 type GenerateBody = {
   studentId?: string;
+  student_id?: string;
   force?: boolean;
   sendWhatsApp?: boolean;
 };
@@ -94,6 +99,11 @@ function getStudentTaxId(
   return /^\d{11}$|^\d{14}$/.test(taxId) ? taxId : null;
 }
 
+function resolveStudentIdFilter(body: GenerateBody): string | null {
+  const raw = body.studentId ?? body.student_id;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
+
 async function asaasRequest(path: string, init: RequestInit = {}) {
   const apiKey = getEnv("ASAAS_API_KEY");
   const baseUrl = getAsaasBaseUrl();
@@ -107,7 +117,9 @@ async function asaasRequest(path: string, init: RequestInit = {}) {
     },
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(`Asaas [${response.status}]: ${JSON.stringify(data)}`);
+  if (!response.ok) {
+    throw new Error(`Asaas [${response.status}]: ${JSON.stringify(data)}`);
+  }
   return data;
 }
 
@@ -163,16 +175,17 @@ async function ensureAsaasCustomer(
 }
 
 function buildBillingMessage(
-  student: StudentRow,
+  academy: AcademyEmbed | null,
+  studentName: string,
   planName: string,
   amount: number,
   dueDate: string,
   boletoUrl: string | null,
 ) {
   return [
-    `${student.academies?.name ?? "Faith Brothers BJJ"}`,
+    `${academy?.name ?? "Faith Brothers BJJ"}`,
     "",
-    `Olá ${student.full_name}!`,
+    `Olá ${studentName}!`,
     "",
     "Sua mensalidade foi gerada.",
     `Plano: ${planName}`,
@@ -180,7 +193,7 @@ function buildBillingMessage(
     `Vencimento: ${dueDate.split("-").reverse().join("/")}`,
     boletoUrl ? `Boleto/PIX: ${boletoUrl}` : "",
     "",
-    `Dúvidas: ${student.academies?.finance_contact_name ?? "Financeiro"} - ${student.academies?.finance_whatsapp ?? ""}`,
+    `Dúvidas: ${academy?.finance_contact_name ?? "Financeiro"} - ${academy?.finance_whatsapp ?? ""}`,
     "OSS!",
   ].filter(Boolean).join("\n");
 }
@@ -188,6 +201,7 @@ function buildBillingMessage(
 async function dispatchBillingWhatsApp(params: {
   supabase: ReturnType<typeof createServiceClient>;
   student: StudentRow;
+  academy: AcademyEmbed | null;
   billingId: string;
   planName: string;
   amount: number;
@@ -205,7 +219,8 @@ async function dispatchBillingWhatsApp(params: {
     billingId: params.billingId,
     recipient: params.student.whatsapp,
     body: buildBillingMessage(
-      params.student,
+      params.academy,
+      params.student.full_name,
       params.planName,
       params.amount,
       params.dueDate,
@@ -249,7 +264,7 @@ Deno.serve(async (req) => {
     }
 
     const force = body.force === true;
-    const studentIdFilter = typeof body.studentId === "string" && body.studentId ? body.studentId : null;
+    const studentIdFilter = resolveStudentIdFilter(body);
     const sendWhatsAppOverride =
       typeof body.sendWhatsApp === "boolean" ? body.sendWhatsApp : undefined;
 
@@ -289,22 +304,60 @@ Deno.serve(async (req) => {
     const processed: BillingProcessedEntry[] = [];
     const whatsappHandledBillingIds = new Set<string>();
 
+    if (studentIdFilter && (!students || students.length === 0)) {
+      processed.push(
+        buildFailedProcessedEntry({
+          studentId: studentIdFilter,
+          studentName: "Aluno não elegível",
+          stage: "resolve_student",
+          error:
+            "Aluno não encontrado para cobrança. Verifique se está ativo, com plano vinculado e na mesma academia.",
+        }),
+      );
+    }
+
     for (const student of (students ?? []) as unknown as StudentRow[]) {
-      const plan = student.plans;
-      const settings = getBillingSettings(student.academies?.academy_billing_settings);
+      const plan = unwrapRelation(student.plans);
+      const academy = unwrapRelation(student.academies);
+      const settings = getBillingSettings(academy?.academy_billing_settings);
       const skipStatus = getMissingBillingSkipStatus(!!plan, !!settings);
       if (skipStatus || !plan || !settings) {
-        processed.push({ studentId: student.id, status: skipStatus ?? "skipped_missing_billing_settings" });
+        processed.push({
+          studentId: student.id,
+          studentName: student.full_name,
+          status: skipStatus ?? "skipped_missing_billing_settings",
+        });
         continue;
       }
 
       if (shouldSkipBeforeIssueDay(today, settings.boleto_issue_day, force)) {
-        processed.push({ studentId: student.id, status: "skipped_before_issue_day" });
+        processed.push({
+          studentId: student.id,
+          studentName: student.full_name,
+          status: "skipped_before_issue_day",
+        });
         continue;
       }
 
       if (!hasValidStudentWhatsapp(student.whatsapp)) {
-        processed.push({ studentId: student.id, status: "skipped_missing_whatsapp" });
+        processed.push({
+          studentId: student.id,
+          studentName: student.full_name,
+          status: "skipped_missing_whatsapp",
+        });
+        continue;
+      }
+
+      const planAmount = Number(plan.monthly_price);
+      if (!Number.isFinite(planAmount) || planAmount <= 0) {
+        processed.push(
+          buildFailedProcessedEntry({
+            studentId: student.id,
+            studentName: student.full_name,
+            stage: "create_asaas_payment",
+            error: "Valor do plano inválido. Atualize o plano do aluno antes de gerar cobrança.",
+          }),
+        );
         continue;
       }
 
@@ -318,7 +371,12 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (existingBilling) {
-        processed.push({ studentId: student.id, billingId: existingBilling.id, status: "already_exists" });
+        processed.push({
+          studentId: student.id,
+          studentName: student.full_name,
+          billingId: existingBilling.id,
+          status: "already_exists",
+        });
 
         if (
           sendWhatsApp &&
@@ -327,13 +385,14 @@ Deno.serve(async (req) => {
           existingBilling.boleto_url &&
           (existingBilling.status === "pendente" || existingBilling.status === "gerado")
         ) {
-          const planName =
-            (Array.isArray(existingBilling.plans)
-              ? existingBilling.plans[0]?.name
-              : (existingBilling.plans as { name?: string } | null)?.name) ?? plan.name;
+          const existingPlan = unwrapRelation(
+            existingBilling.plans as { name: string } | { name: string }[] | null,
+          );
+          const planName = existingPlan?.name ?? plan.name;
           const waStatus = await dispatchBillingWhatsApp({
             supabase,
             student,
+            academy,
             billingId: existingBilling.id,
             planName,
             amount: Number(existingBilling.amount),
@@ -343,8 +402,14 @@ Deno.serve(async (req) => {
           whatsappHandledBillingIds.add(existingBilling.id);
           processed.push({
             studentId: student.id,
+            studentName: student.full_name,
             billingId: existingBilling.id,
-            status: waStatus === "sent_whatsapp" ? "whatsapp_sent" : waStatus === "skipped_missing_whatsapp" ? "whatsapp_skipped_missing_recipient" : "whatsapp_skipped",
+            status:
+              waStatus === "sent_whatsapp"
+                ? "whatsapp_sent"
+                : waStatus === "skipped_missing_whatsapp"
+                  ? "whatsapp_skipped_missing_recipient"
+                  : "whatsapp_skipped",
           });
         }
         continue;
@@ -352,7 +417,11 @@ Deno.serve(async (req) => {
 
       const taxId = getStudentTaxId(student.student_billing_profiles);
       if (!taxId) {
-        processed.push({ studentId: student.id, status: "skipped_missing_tax_id" });
+        processed.push({
+          studentId: student.id,
+          studentName: student.full_name,
+          status: "skipped_missing_tax_id",
+        });
         continue;
       }
 
@@ -377,9 +446,9 @@ Deno.serve(async (req) => {
             body: JSON.stringify({
               customer: customerId,
               billingType: "UNDEFINED",
-              value: plan.monthly_price,
+              value: planAmount,
               dueDate,
-              description: `${student.academies?.name ?? "Academia"} - ${plan.name} - ${referenceMonth}`,
+              description: `${academy?.name ?? "Academia"} - ${plan.name} - ${referenceMonth}`,
               externalReference,
             }),
           });
@@ -398,7 +467,7 @@ Deno.serve(async (req) => {
             student_id: student.id,
             plan_id: plan.id,
             reference_month: referenceMonth,
-            amount: plan.monthly_price,
+            amount: planAmount,
             issue_date: issueDate,
             due_date: dueDate,
             status: sendWhatsApp ? "gerado" : "pendente",
@@ -409,7 +478,9 @@ Deno.serve(async (req) => {
           .select("id, boleto_url")
           .single();
 
-        if (billingInsertError || !insertedBilling) throw new Error(billingInsertError?.message ?? "insert failed");
+        if (billingInsertError || !insertedBilling) {
+          throw new Error(billingInsertError?.message ?? "insert failed");
+        }
         insertedBillingId = insertedBilling.id;
 
         if (sendWhatsApp) {
@@ -417,36 +488,55 @@ Deno.serve(async (req) => {
           const waStatus = await dispatchBillingWhatsApp({
             supabase,
             student,
+            academy,
             billingId: insertedBilling.id,
             planName: plan.name,
-            amount: plan.monthly_price,
+            amount: planAmount,
             dueDate,
             boletoUrl: insertedBilling.boleto_url,
           });
           whatsappHandledBillingIds.add(insertedBilling.id);
           if (waStatus === "sent_whatsapp") {
-            processed.push({ studentId: student.id, billingId: insertedBilling.id, status: "sent_whatsapp" });
-          } else if (waStatus === "skipped_missing_whatsapp") {
-            processed.push({ studentId: student.id, billingId: insertedBilling.id, status: "generated" });
             processed.push({
               studentId: student.id,
+              studentName: student.full_name,
+              billingId: insertedBilling.id,
+              status: "sent_whatsapp",
+            });
+          } else if (waStatus === "skipped_missing_whatsapp") {
+            processed.push({
+              studentId: student.id,
+              studentName: student.full_name,
+              billingId: insertedBilling.id,
+              status: "generated",
+            });
+            processed.push({
+              studentId: student.id,
+              studentName: student.full_name,
               billingId: insertedBilling.id,
               status: "whatsapp_skipped_missing_recipient",
             });
           } else {
             processed.push({
               studentId: student.id,
+              studentName: student.full_name,
               billingId: insertedBilling.id,
               status: "queued_whatsapp_send_disabled",
             });
           }
         } else {
-          processed.push({ studentId: student.id, billingId: insertedBilling.id, status: "generated" });
+          processed.push({
+            studentId: student.id,
+            studentName: student.full_name,
+            billingId: insertedBilling.id,
+            status: "generated",
+          });
         }
       } catch (error) {
         const message = sanitizeBillingError(error instanceof Error ? error.message : "Unknown error");
         console.error("generate-monthly-billings student failed", {
           studentId: student.id,
+          studentName: student.full_name,
           academyId: student.academy_id,
           stage,
           message,
@@ -454,33 +544,49 @@ Deno.serve(async (req) => {
         if (insertedBillingId) {
           await supabase.from("billings").update({ status: "falhou", last_error: message }).eq("id", insertedBillingId);
         }
-        processed.push(buildFailedProcessedEntry({
-          studentId: student.id,
-          stage,
-          error: message,
-          billingId: insertedBillingId,
-        }));
+        processed.push(
+          buildFailedProcessedEntry({
+            studentId: student.id,
+            studentName: student.full_name,
+            stage,
+            error: error instanceof Error ? error.message : message,
+            billingId: insertedBillingId,
+          }),
+        );
       }
     }
 
     const summary = summarizeBillingProcessed(processed);
+    const errors = processed.filter((row) => row.status === "failed");
 
     return new Response(
       JSON.stringify({
         success: true,
         referenceMonth,
-        dueDay: 15,
+        dueDay: settingsDueDayFallback(processed, students as StudentRow[] | null),
         force,
         sendWhatsApp: sendWhatsAppOverride ?? null,
+        studentId: studentIdFilter,
         summary,
+        errors,
         processed,
         whatsappHandledCount: whatsappHandledBillingIds.size,
       }),
       { headers },
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = sanitizeBillingError(error instanceof Error ? error.message : "Unknown error");
     const status = message === "Unauthorized" ? 401 : message === "Forbidden" ? 403 : 500;
     return new Response(JSON.stringify({ success: false, error: message }), { status, headers });
   }
 });
+
+function settingsDueDayFallback(
+  _processed: BillingProcessedEntry[],
+  students: StudentRow[] | null,
+): number {
+  const first = students?.[0];
+  const academy = unwrapRelation(first?.academies ?? null);
+  const settings = getBillingSettings(academy?.academy_billing_settings);
+  return settings?.boleto_due_day ?? 15;
+}
