@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { mapRegisterStudentRpcError } from "../../supabase/functions/_shared/register-errors.ts";
 import { buildRegistrationReceivedMessage } from "../../supabase/functions/_shared/whatsapp-messages.ts";
 import { dispatchRegistrationWhatsApp } from "../../supabase/functions/_shared/registration-whatsapp.ts";
+import { formatBillingTaxIdLabel, isValidTaxId, maskTaxId } from "@/lib/tax-id";
 
 describe("mapRegisterStudentRpcError", () => {
   it("maps duplicate CPF/CNPJ before WhatsApp", () => {
@@ -69,6 +70,19 @@ describe("register-student WhatsApp confirmation", () => {
       skipped: true,
       reason: "WHATSAPP_SEND_ENABLED=false",
     });
+  });
+
+  it("registration billing_tax_id is stored separately and listed only masked", () => {
+    // Cadastro público envia billing_tax_id → complete_student_registration_atomic(_tax_id)
+    // → student_billing_profiles.tax_id; listagem usa RPC mascarada.
+    const billingTaxIdOnRegister = "52998224725";
+    expect(isValidTaxId(billingTaxIdOnRegister)).toBe(true);
+    const label = formatBillingTaxIdLabel({
+      has_tax_id: true,
+      masked: maskTaxId(billingTaxIdOnRegister),
+    });
+    expect(label).toBe("***.***.***-25");
+    expect(label).not.toContain(billingTaxIdOnRegister);
   });
 
   it("does not break registration when WhatsApp queue fails", async () => {

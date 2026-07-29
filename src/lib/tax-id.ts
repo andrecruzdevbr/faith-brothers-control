@@ -71,3 +71,19 @@ export function hasBillableTaxId(
 ): boolean {
   return extractStudentTaxId(value) !== null;
 }
+
+export type MaskedTaxIdInfo = {
+  masked: string | null;
+  has_tax_id: boolean;
+};
+
+/** Label seguro para listagens — nunca expõe CPF/CNPJ completo. */
+export function formatBillingTaxIdLabel(info: MaskedTaxIdInfo | null | undefined): string {
+  if (info?.has_tax_id && info.masked) return info.masked;
+  if (info?.has_tax_id) return "Cadastrado";
+  return "Não informado";
+}
+
+export function isMissingBillingTaxId(info: MaskedTaxIdInfo | null | undefined): boolean {
+  return !info?.has_tax_id;
+}

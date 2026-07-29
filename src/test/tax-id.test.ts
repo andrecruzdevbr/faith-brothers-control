@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   extractStudentTaxId,
+  formatBillingTaxIdLabel,
   hasBillableTaxId,
+  isMissingBillingTaxId,
   isValidCnpj,
   isValidCpf,
   isValidTaxId,
@@ -54,6 +56,33 @@ describe("student billing tax id extraction", () => {
     expect(extractStudentTaxId(profile)).toBe(VALID_CPF);
     expect(extractStudentTaxId([profile])).toBe(VALID_CPF);
     expect(hasBillableTaxId([profile])).toBe(true);
+  });
+
+  it("blocks Asaas charge path when tax id is missing", () => {
+    const profile = { tax_id: null };
+    const taxId = extractStudentTaxId(profile);
+    expect(taxId).toBeNull();
+    expect(hasBillableTaxId(profile)).toBe(false);
+    const status = taxId ? "charge" : "skipped_missing_tax_id";
+    expect(status).toBe("skipped_missing_tax_id");
+  });
+});
+
+describe("student list tax id labels", () => {
+  it("shows masked CPF/CNPJ when present", () => {
+    expect(
+      formatBillingTaxIdLabel({
+        has_tax_id: true,
+        masked: maskTaxId(VALID_CPF),
+      }),
+    ).toBe("***.***.***-25");
+  });
+
+  it("shows Não informado when missing", () => {
+    expect(formatBillingTaxIdLabel({ has_tax_id: false, masked: null })).toBe("Não informado");
+    expect(formatBillingTaxIdLabel(undefined)).toBe("Não informado");
+    expect(isMissingBillingTaxId({ has_tax_id: false, masked: null })).toBe(true);
+    expect(isMissingBillingTaxId({ has_tax_id: true, masked: "***.***.***-25" })).toBe(false);
   });
 });
 

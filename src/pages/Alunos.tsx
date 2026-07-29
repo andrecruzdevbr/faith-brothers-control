@@ -18,6 +18,11 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { formatWhatsapp } from "@/lib/whatsapp-auth";
 import { BILLING_STATUS_LABELS, PAGE_SIZE, STUDENT_STATUS_LABELS } from "@/lib/constants";
+import {
+  formatBillingTaxIdLabel,
+  isMissingBillingTaxId,
+  type MaskedTaxIdInfo,
+} from "@/lib/tax-id";
 import type { Enums } from "@/integrations/supabase/types";
 
 const beltColors: Record<string, string> = {
@@ -50,6 +55,47 @@ function getInitials(name: string) {
   return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 }
 
+async function fetchMaskedTaxIdMap(
+  academyId: string,
+  studentIds: string[],
+): Promise<Map<string, MaskedTaxIdInfo>> {
+  const map = new Map<string, MaskedTaxIdInfo>();
+
+  // Prefer batch RPC (migration 20260729120000). Fallback: per-student masked RPC.
+  const { data: batch, error: batchError } = await supabase.rpc("list_student_billing_tax_id_masked", {
+    _academy_id: academyId,
+  });
+
+  if (!batchError && Array.isArray(batch)) {
+    for (const row of batch) {
+      map.set(row.student_id, {
+        masked: row.masked ?? null,
+        has_tax_id: !!row.has_tax_id,
+      });
+    }
+    return map;
+  }
+
+  const rows = await Promise.all(
+    studentIds.map(async (id) => {
+      const { data, error } = await supabase.rpc("get_student_billing_tax_id_masked", {
+        _student_id: id,
+      });
+      if (error) {
+        return [id, { masked: null, has_tax_id: false } satisfies MaskedTaxIdInfo] as const;
+      }
+      const row = (Array.isArray(data) ? data[0] : data) as MaskedTaxIdInfo | undefined;
+      return [
+        id,
+        { masked: row?.masked ?? null, has_tax_id: !!row?.has_tax_id } satisfies MaskedTaxIdInfo,
+      ] as const;
+    }),
+  );
+
+  for (const [id, info] of rows) map.set(id, info);
+  return map;
+}
+
 const Alunos = () => {
   const { isAdmin, isStaff } = useAuth();
   const { toast } = useToast();
@@ -74,6 +120,7 @@ const Alunos = () => {
   const students = data?.students ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const studentIds = students.map((s) => s.id);
 
   const { data: financialMap } = useQuery({
     queryKey: ["student-financial-map", academyId],
@@ -86,6 +133,12 @@ const Alunos = () => {
       if (error) throw error;
       return new Map((rows ?? []).map((r) => [r.student_id!, r]));
     },
+  });
+
+  const { data: taxIdMap } = useQuery({
+    queryKey: ["student-tax-masked", academyId, studentIds.join(",")],
+    enabled: !!academyId && isStaff && studentIds.length > 0,
+    queryFn: () => fetchMaskedTaxIdMap(academyId!, studentIds),
   });
 
   const handleApprove = async (studentId: string, approve: boolean) => {
@@ -164,6 +217,9 @@ const Alunos = () => {
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Faixa</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">Telefone</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden lg:table-cell">Plano</th>
+                  {isStaff && (
+                    <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">CPF/CNPJ</th>
+                  )}
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Financeiro</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
                   {isStaff && (
@@ -177,6 +233,9 @@ const Alunos = () => {
                   const fin = financialMap?.get(aluno.id);
                   const badge = getFinancialBadge(fin?.status ?? null, fin?.due_date ?? null);
                   const isPending = aluno.status === "pendente_aprovacao";
+                  const taxInfo = taxIdMap?.get(aluno.id);
+                  const taxLabel = formatBillingTaxIdLabel(taxInfo);
+                  const taxMissing = isMissingBillingTaxId(taxInfo);
 
                   return (
                     <tr key={aluno.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
@@ -199,6 +258,20 @@ const Alunos = () => {
                       <td className="px-4 py-3 text-sm text-muted-foreground hidden lg:table-cell">
                         {plan?.name ?? fin?.plan_name ?? "—"}
                       </td>
+                      {isStaff && (
+                        <td className="px-4 py-3">
+                          <span
+                            className={`text-xs font-medium px-2 py-1 rounded-full ${
+                              taxMissing
+                                ? "text-warning bg-warning/10"
+                                : "text-muted-foreground bg-secondary"
+                            }`}
+                            title={taxMissing ? "CPF/CNPJ pendente para cobrança" : "Documento mascarado"}
+                          >
+                            {taxLabel}
+                          </span>
+                        </td>
+                      )}
                       <td className="px-4 py-3">
                         <span className={`text-xs font-medium px-2 py-1 rounded-full ${badge.class}`}>{badge.label}</span>
                       </td>
@@ -223,7 +296,7 @@ const Alunos = () => {
                               onClick={() => setTaxStudent({ id: aluno.id, name: aluno.full_name })}
                             >
                               <Shield className="h-3 w-3" />
-                              CPF/CNPJ
+                              {taxMissing ? "Informar CPF/CNPJ" : "CPF/CNPJ"}
                             </Button>
                             {isAdmin && isPending ? (
                               <>
@@ -246,8 +319,6 @@ const Alunos = () => {
                                   Rejeitar
                                 </Button>
                               </>
-                            ) : !isPending ? (
-                              <span className="text-xs text-muted-foreground self-center">—</span>
                             ) : null}
                           </div>
                         </td>
@@ -283,7 +354,14 @@ const Alunos = () => {
           <DialogHeader>
             <DialogTitle>CPF/CNPJ de cobrança — {taxStudent?.name}</DialogTitle>
           </DialogHeader>
-          {taxStudent && <StudentBillingTaxIdEditor studentId={taxStudent.id} />}
+          {taxStudent && (
+            <StudentBillingTaxIdEditor
+              studentId={taxStudent.id}
+              onSaved={() => {
+                void queryClient.invalidateQueries({ queryKey: ["student-tax-masked"] });
+              }}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>

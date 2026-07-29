@@ -662,6 +662,10 @@ export type Database = {
         Args: { _student_id: string }
         Returns: { masked: string | null; has_tax_id: boolean }[]
       }
+      list_student_billing_tax_id_masked: {
+        Args: { _academy_id: string }
+        Returns: { student_id: string; masked: string | null; has_tax_id: boolean }[]
+      }
       upsert_student_billing_tax_id: {
         Args: { _student_id: string; _tax_id: string }
         Returns: undefined
