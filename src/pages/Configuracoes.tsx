@@ -19,7 +19,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useAcademySettings, useAcademyId } from "@/hooks/useQueries";
 import { callEdgeFunction, formatDateBR } from "@/lib/api";
 import { formatWhatsapp } from "@/lib/whatsapp-auth";
-import { formatAsaasEnvironmentLabel } from "@/lib/academy-finance";
 import { supabase } from "@/integrations/supabase/client";
 
 type WhatsAppMessage = {
@@ -214,9 +213,9 @@ const Configuracoes = () => {
             )}
             {billing?.send_whatsapp_automatically != null && (
               <div>
-                <span className="text-muted-foreground">WhatsApp automático:</span>{" "}
+                <span className="text-muted-foreground">Cobrança via WhatsApp:</span>{" "}
                 <span className="text-foreground font-medium">
-                  {billing.send_whatsapp_automatically ? "Ativado" : "Desativado"}
+                  {billing.send_whatsapp_automatically ? "Automática" : "Manual"}
                 </span>
               </div>
             )}
@@ -239,14 +238,10 @@ const Configuracoes = () => {
                 </span>
               </div>
             )}
-            {academy?.asaas_environment_label && (
-              <div>
-                <span className="text-muted-foreground">Asaas:</span>{" "}
-                <span className="text-foreground font-medium">
-                  {formatAsaasEnvironmentLabel(academy.asaas_environment_label)}
-                </span>
-              </div>
-            )}
+            <div>
+              <span className="text-muted-foreground">Repasse bancário:</span>{" "}
+              <span className="text-foreground font-medium">Manual pelo painel Asaas</span>
+            </div>
           </div>
         </div>
       </motion.div>

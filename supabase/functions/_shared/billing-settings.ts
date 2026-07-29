@@ -150,7 +150,9 @@ export function formatBillingSettingsLabel(settings: {
   send_whatsapp_automatically: boolean;
 }): string {
   return `Emissão dia ${settings.boleto_issue_day} • Vencimento dia ${settings.boleto_due_day}${
-    settings.send_whatsapp_automatically ? " • Envio automático ativo" : " • Envio manual"
+    settings.send_whatsapp_automatically
+      ? " • Cobrança via WhatsApp automática"
+      : " • Envio WhatsApp manual"
   }`;
 }
 
@@ -178,6 +180,7 @@ export type BillingPeriod = {
   dueDay: number;
   labelPt: string;
   dueDateLabelPt: string;
+  issueDateLabelPt: string;
 };
 
 export function formatUtcDate(year: number, monthIndex: number, day: number): string {
@@ -218,7 +221,7 @@ export function buildBillingPeriod(
   year: number,
   monthIndex: number,
   dueDay: number,
-  issueDay = 1,
+  issueDay = 10,
 ): BillingPeriod {
   const safeDue = Math.min(Math.max(dueDay, 1), 28);
   const safeIssue = Math.min(Math.max(issueDay, 1), safeDue);
@@ -234,6 +237,7 @@ export function buildBillingPeriod(
     dueDay: safeDue,
     labelPt: formatMonthLabelPt(year, monthIndex),
     dueDateLabelPt: formatDateLabelPt(dueDate),
+    issueDateLabelPt: formatDateLabelPt(issueDate),
   };
 }
 
@@ -242,10 +246,15 @@ export function buildBillingPeriod(
  * Depois do dia de vencimento → próximo mês.
  * Ex.: 29/07/2026 + dueDay 15 → Agosto/2026 (15/08/2026).
  */
+/**
+ * Até o dia de vencimento (ex.: 15) → mês atual (ex.: entre 10 e 15 ainda gera o mês atual).
+ * Depois do vencimento → próximo mês.
+ * Não seleciona período cujo vencimento já passou.
+ */
 export function resolveDefaultBillingPeriod(
   now: Date,
   dueDay: number,
-  issueDay = 1,
+  issueDay = 10,
 ): BillingPeriod {
   const { year, monthIndex, day } = getBrazilCivilDate(now);
   let y = year;
@@ -298,7 +307,7 @@ export function resolveBillingPeriod(params: {
   rejectPast?: boolean;
 }): ResolveBillingPeriodResult {
   const now = params.now ?? new Date();
-  const issueDay = params.issueDay ?? 1;
+  const issueDay = params.issueDay ?? 10;
   const dueDay = params.dueDay;
 
   const parsed = parseReferenceMonthInput(params.referenceMonth);
@@ -332,7 +341,7 @@ export function resolveBillingPeriod(params: {
 export function listSelectableBillingPeriods(
   now: Date,
   dueDay: number,
-  issueDay = 1,
+  issueDay = 10,
   futureMonths = 3,
 ): BillingPeriod[] {
   const defaultPeriod = resolveDefaultBillingPeriod(now, dueDay, issueDay);

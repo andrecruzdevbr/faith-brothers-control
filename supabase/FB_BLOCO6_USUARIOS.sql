@@ -9,7 +9,7 @@ VALUES (
   '00000000-0000-0000-0000-000000000001',
   'Faith Brothers BJJ', 'faith-brothers', 'Ouro Branco', 'MG',
   'Av. Patriótica N 210', 'Ramon Pereira de São José', '31987540515',
-  'Nubank / Nu PJ', '260', '2372-8', '42762-4'
+  'Banco do Brasil', '001', '2372-8', '42762-4'
 )
 ON CONFLICT (slug) DO UPDATE SET
   name = EXCLUDED.name, city = EXCLUDED.city, state = EXCLUDED.state,
@@ -19,8 +19,11 @@ ON CONFLICT (slug) DO UPDATE SET
   bank_branch = EXCLUDED.bank_branch, bank_account = EXCLUDED.bank_account;
 
 INSERT INTO public.academy_billing_settings (academy_id, boleto_issue_day, boleto_due_day, send_whatsapp_automatically)
-VALUES ('00000000-0000-0000-0000-000000000001', 12, 16, true)
-ON CONFLICT (academy_id) DO NOTHING;
+VALUES ('00000000-0000-0000-0000-000000000001', 10, 15, true)
+ON CONFLICT (academy_id) DO UPDATE SET
+  boleto_issue_day = EXCLUDED.boleto_issue_day,
+  boleto_due_day = EXCLUDED.boleto_due_day,
+  send_whatsapp_automatically = EXCLUDED.send_whatsapp_automatically;
 
 INSERT INTO public.plans (academy_id, name, monthly_price, training_days_per_week, active)
 VALUES

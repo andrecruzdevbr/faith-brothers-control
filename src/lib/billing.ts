@@ -4,7 +4,9 @@ export function formatBillingSettingsLabel(settings: {
   send_whatsapp_automatically: boolean;
 }): string {
   return `Emissão dia ${settings.boleto_issue_day} • Vencimento dia ${settings.boleto_due_day}${
-    settings.send_whatsapp_automatically ? " • Envio automático ativo" : " • Envio manual"
+    settings.send_whatsapp_automatically
+      ? " • Cobrança via WhatsApp automática"
+      : " • Envio WhatsApp manual"
   }`;
 }
 

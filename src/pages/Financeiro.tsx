@@ -45,11 +45,7 @@ import {
   type BillingPeriod,
 } from "@/lib/billing";
 import { formatWhatsapp } from "@/lib/whatsapp-auth";
-import {
-  ASAAS_WEBHOOK_URL,
-  formatAsaasEnvironmentLabel,
-  formatFinanceDocumentDisplay,
-} from "@/lib/academy-finance";
+import { formatFinanceDocumentDisplay } from "@/lib/academy-finance";
 
 type BillingRunSummary = {
   created: number;
@@ -127,7 +123,7 @@ const Financeiro = () => {
   const { data: billingsData, isLoading: loadingBillings, isFetching } = useBillings(page, statusFilter);
 
   const dueDay = settings?.billing?.boleto_due_day ?? 15;
-  const issueDay = settings?.billing?.boleto_issue_day ?? 1;
+  const issueDay = settings?.billing?.boleto_issue_day ?? 10;
 
   const periodOptions = useMemo(
     () => listSelectableBillingPeriods(new Date(), dueDay, issueDay, 3),
@@ -396,45 +392,63 @@ const Financeiro = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-display font-bold tracking-wider">FINANCEIRO</h1>
-          <p className="text-sm text-muted-foreground mt-1">Gestão de cobranças e planos • Vencimento dia {dueDay}</p>
-          <p className="text-sm text-foreground mt-2">
-            Referência: <span className="font-medium">{selectedPeriod.labelPt}</span>
-            {" • "}
-            Vencimento: <span className="font-medium">{selectedPeriod.dueDateLabelPt}</span>
+      <div className="space-y-5">
+        <div className="space-y-1">
+          <h1 className="text-2xl md:text-3xl font-display font-bold tracking-wider">Financeiro</h1>
+          <p className="text-sm text-muted-foreground">
+            Gestão de cobranças, planos e mensalidades
           </p>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-4 md:p-5 shadow-card">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Referência atual</p>
+                <p className="font-medium text-foreground mt-0.5">{selectedPeriod.labelPt}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Emissão</p>
+                <p className="font-medium text-foreground mt-0.5">{selectedPeriod.issueDateLabelPt}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Vencimento</p>
+                <p className="font-medium text-foreground mt-0.5">{selectedPeriod.dueDateLabelPt}</p>
+              </div>
+            </div>
+            {isAdmin && (
+              <div className="w-full sm:w-64 lg:shrink-0">
+                <label className="text-xs text-muted-foreground mb-1 block">Mês de referência</label>
+                <Select
+                  value={selectedPeriod.referenceMonth}
+                  onValueChange={setSelectedReferenceMonth}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o mês" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {periodOptions.map((option) => (
+                      <SelectItem key={option.referenceMonth} value={option.referenceMonth}>
+                        {option.labelPt} — vence {option.dueDateLabelPt}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
           {dueDatePast && (
-            <p className="text-xs text-destructive mt-1">
+            <p className="text-xs text-destructive mt-3">
               Este vencimento já passou. Selecione {defaultPeriod.labelPt} ou um mês futuro.
             </p>
           )}
         </div>
+
         {isAdmin && (
-          <div className="flex flex-col items-stretch sm:items-end gap-3">
-            <div className="w-full sm:w-64">
-              <label className="text-xs text-muted-foreground mb-1 block">Mês de referência</label>
-              <Select
-                value={selectedPeriod.referenceMonth}
-                onValueChange={setSelectedReferenceMonth}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o mês" />
-                </SelectTrigger>
-                <SelectContent>
-                  {periodOptions.map((option) => (
-                    <SelectItem key={option.referenceMonth} value={option.referenceMonth}>
-                      {option.labelPt} — vence {option.dueDateLabelPt}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-wrap gap-2 justify-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
             <Button
               variant="outline"
-              className="gap-2"
+              className="gap-2 w-full justify-center"
               disabled={!!busyAction || dueDatePast}
               onClick={() => setConfirmAction("generate")}
             >
@@ -442,7 +456,7 @@ const Financeiro = () => {
               Gerar cobranças de {selectedPeriod.labelPt}
             </Button>
             <Button
-              className="gradient-primary text-primary-foreground gap-2"
+              className="gradient-primary text-primary-foreground gap-2 w-full justify-center"
               disabled={!!busyAction || dueDatePast}
               onClick={() => setConfirmAction("generate_send")}
             >
@@ -451,7 +465,7 @@ const Financeiro = () => {
             </Button>
             <Button
               variant="outline"
-              className="gap-2"
+              className="gap-2 w-full justify-center sm:col-span-2 xl:col-span-1"
               disabled={!!busyAction}
               onClick={() => setConfirmAction("send_pending")}
             >
@@ -462,7 +476,6 @@ const Financeiro = () => {
               )}
               Enviar WhatsApp para pendentes
             </Button>
-            </div>
           </div>
         )}
       </div>
@@ -734,16 +747,8 @@ const Financeiro = () => {
                 {formatBillingSettingsLabel(billingSettings)}
               </p>
             )}
-            <p className="text-xs text-muted-foreground mt-1">
-              {formatAsaasEnvironmentLabel(academy?.asaas_environment_label)}
-              {" • "}
-              API Key somente em Supabase Secrets (nunca no app)
-            </p>
-            <p className="text-xs text-muted-foreground mt-1 break-all">
-              Webhook produção: {ASAAS_WEBHOOK_URL}
-            </p>
             <p className="text-[11px] text-muted-foreground/80 mt-2">
-              Conta bancária acima é referência de repasse PJ. O recebimento Asaas segue a conta dona da API Key de produção.
+              Repasse bancário realizado pelo painel Asaas.
             </p>
           </>
         )}

@@ -18,8 +18,8 @@ UPDATE public.academies
 SET
   finance_contact_name = 'Ramon Pereira de São José',
   finance_whatsapp = '31987540515',
-  bank_name = 'Nubank / Nu PJ',
-  bank_code = '260',
+  bank_name = 'Banco do Brasil',
+  bank_code = '001',
   bank_branch = '2372-8',
   bank_account = '42762-4',
   finance_document_display = '53.536.865/0001-XX',
@@ -28,10 +28,10 @@ SET
 WHERE slug = 'faith-brothers'
    OR finance_contact_name ILIKE '%Felipe%';
 
--- Garante vencimento dia 15 e WhatsApp automático (já regra da academia)
+-- Emissão dia 10, vencimento dia 15, WhatsApp automático da cobrança
 UPDATE public.academy_billing_settings abs
 SET
-  boleto_issue_day = 1,
+  boleto_issue_day = 10,
   boleto_due_day = 15,
   send_whatsapp_automatically = TRUE,
   updated_at = now()

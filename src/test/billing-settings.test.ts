@@ -15,7 +15,7 @@ import {
 import { summarizeBillingRunText, formatBillingErrorDetail, collectBillingErrors } from "@/lib/billing";
 
 const sampleSettings = {
-  boleto_issue_day: 1,
+  boleto_issue_day: 10,
   boleto_due_day: 15,
   send_whatsapp_automatically: true,
 };
@@ -48,16 +48,17 @@ describe("getMissingBillingSkipStatus", () => {
   });
 });
 
-describe("billing due day 15 and manual force", () => {
-  it("formats settings label with due day 15 and auto send", () => {
-    expect(formatBillingSettingsLabel(sampleSettings)).toContain("Vencimento dia 15");
-    expect(formatBillingSettingsLabel(sampleSettings)).toContain("Envio automático ativo");
+describe("billing issue day 10 and due day 15", () => {
+  it("formats settings label for WhatsApp cobrança automática", () => {
+    expect(formatBillingSettingsLabel(sampleSettings)).toBe(
+      "Emissão dia 10 • Vencimento dia 15 • Cobrança via WhatsApp automática",
+    );
   });
 
   it("skips before issue day unless force=true", () => {
-    expect(shouldSkipBeforeIssueDay(5, 12, false)).toBe(true);
-    expect(shouldSkipBeforeIssueDay(5, 12, true)).toBe(false);
-    expect(shouldSkipBeforeIssueDay(15, 1, false)).toBe(false);
+    expect(shouldSkipBeforeIssueDay(5, 10, false)).toBe(true);
+    expect(shouldSkipBeforeIssueDay(10, 10, false)).toBe(false);
+    expect(shouldSkipBeforeIssueDay(5, 10, true)).toBe(false);
   });
 
   it("resolves sendWhatsApp override for admin buttons", () => {
@@ -75,29 +76,39 @@ describe("billing due day 15 and manual force", () => {
 });
 
 describe("billing reference month after due day", () => {
-  it("uses current month when today is on or before due day 15", () => {
-    const period = resolveDefaultBillingPeriod(new Date("2026-07-15T15:00:00-03:00"), 15, 1);
+  it("uses current month between issue day 10 and due day 15", () => {
+    const period = resolveDefaultBillingPeriod(new Date("2026-07-12T15:00:00-03:00"), 15, 10);
+    expect(period.referenceMonth).toBe("2026-07-01");
+    expect(period.issueDate).toBe("2026-07-10");
+    expect(period.dueDate).toBe("2026-07-15");
+    expect(period.issueDateLabelPt).toBe("10/07/2026");
+    expect(period.labelPt).toBe("Julho/2026");
+  });
+
+  it("uses current month when today is on due day 15", () => {
+    const period = resolveDefaultBillingPeriod(new Date("2026-07-15T15:00:00-03:00"), 15, 10);
     expect(period.referenceMonth).toBe("2026-07-01");
     expect(period.dueDate).toBe("2026-07-15");
     expect(period.labelPt).toBe("Julho/2026");
   });
 
   it("uses next month when today is after due day 15 (29/07/2026 → 15/08/2026)", () => {
-    const period = resolveDefaultBillingPeriod(new Date("2026-07-29T12:00:00-03:00"), 15, 1);
+    const period = resolveDefaultBillingPeriod(new Date("2026-07-29T12:00:00-03:00"), 15, 10);
     expect(period.referenceMonth).toBe("2026-08-01");
+    expect(period.issueDate).toBe("2026-08-10");
     expect(period.dueDate).toBe("2026-08-15");
     expect(period.dueDateLabelPt).toBe("15/08/2026");
     expect(period.labelPt).toBe("Agosto/2026");
   });
 
   it("does not allow past due dates without adjustment", () => {
-    const july = buildBillingPeriod(2026, 6, 15, 1);
+    const july = buildBillingPeriod(2026, 6, 15, 10);
     expect(isDueDateBeforeToday(july.dueDate, new Date("2026-07-29T12:00:00-03:00"))).toBe(true);
 
     const resolved = resolveBillingPeriod({
       now: new Date("2026-07-29T12:00:00-03:00"),
       dueDay: 15,
-      issueDay: 1,
+      issueDay: 10,
       referenceMonth: "2026-07-01",
       rejectPast: false,
     });
@@ -109,6 +120,7 @@ describe("billing reference month after due day", () => {
     const resolved = resolveBillingPeriod({
       now: new Date("2026-07-29T12:00:00-03:00"),
       dueDay: 15,
+      issueDay: 10,
       referenceMonth: "2026-07-01",
       rejectPast: true,
     });
