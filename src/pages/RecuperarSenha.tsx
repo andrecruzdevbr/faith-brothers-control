@@ -3,12 +3,16 @@ import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { KeyRound, ArrowLeft, Send, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Send, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { normalizeWhatsapp } from "@/lib/whatsapp-auth";
+import { callEdgeFunction } from "@/lib/api";
+
+const FRIENDLY_OTP_MESSAGE =
+  "Se o WhatsApp estiver cadastrado, enviaremos um código de recuperação.";
 
 const requestSchema = z.object({
   whatsapp: z.string().trim().min(10, "Informe seu WhatsApp").max(13).regex(/^\d+$/, "Apenas números"),
@@ -22,6 +26,17 @@ const verifySchema = z.object({
   path: ["confirmPassword"], message: "As senhas não conferem",
 });
 
+type ResetOtpResponse = {
+  success?: boolean;
+  message?: string;
+  error?: string;
+  whatsapp?: {
+    queued?: boolean;
+    skipped?: boolean;
+    reason?: string;
+  };
+};
+
 const RecuperarSenha = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -32,9 +47,6 @@ const RecuperarSenha = () => {
   const requestForm = useForm({ resolver: zodResolver(requestSchema), defaultValues: { whatsapp: "" } });
   const verifyForm = useForm({ resolver: zodResolver(verifySchema), defaultValues: { code: "", newPassword: "", confirmPassword: "" } });
 
-  const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-  const baseUrl = `https://${projectId}.supabase.co/functions/v1/reset-password`;
-
   const handleWhatsappChange = (e: React.ChangeEvent<HTMLInputElement>, onChange: (v: string) => void) => {
     onChange(e.target.value.replace(/\D/g, ""));
   };
@@ -43,21 +55,23 @@ const RecuperarSenha = () => {
     setSubmitting(true);
     const normalized = normalizeWhatsapp(values.whatsapp);
     try {
-      const res = await fetch(baseUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "request_otp", whatsapp: normalized }),
+      const data = await callEdgeFunction<ResetOtpResponse>(
+        "reset-password",
+        { action: "request_otp", whatsapp: normalized },
+        { requireAuth: false },
+      );
+
+      setWhatsapp(normalized);
+      setStep("verify");
+
+      const skipped = data.whatsapp?.skipped === true;
+      toast({
+        title: skipped ? "Solicitação registrada" : "Pronto",
+        description: data.message ?? FRIENDLY_OTP_MESSAGE,
       });
-      const data = await res.json();
-      if (!res.ok) {
-        toast({ title: "Erro", description: data.error, variant: "destructive" });
-      } else {
-        setWhatsapp(normalized);
-        setStep("verify");
-        toast({ title: "Código enviado!", description: "Verifique seu WhatsApp." });
-      }
-    } catch {
-      toast({ title: "Erro de conexão", variant: "destructive" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro de conexão";
+      toast({ title: "Erro", description: message, variant: "destructive" });
     }
     setSubmitting(false);
   };
@@ -65,20 +79,21 @@ const RecuperarSenha = () => {
   const onVerifyOtp = async (values: { code: string; newPassword: string }) => {
     setSubmitting(true);
     try {
-      const res = await fetch(baseUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "verify_otp", whatsapp, code: values.code, new_password: values.newPassword }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast({ title: "Erro", description: data.error, variant: "destructive" });
-      } else {
-        toast({ title: "Senha alterada com sucesso!" });
-        navigate("/login", { replace: true });
-      }
-    } catch {
-      toast({ title: "Erro de conexão", variant: "destructive" });
+      await callEdgeFunction(
+        "reset-password",
+        {
+          action: "verify_otp",
+          whatsapp,
+          code: values.code,
+          new_password: values.newPassword,
+        },
+        { requireAuth: false },
+      );
+      toast({ title: "Senha alterada com sucesso!" });
+      navigate("/login", { replace: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro de conexão";
+      toast({ title: "Erro", description: message, variant: "destructive" });
     }
     setSubmitting(false);
   };
@@ -115,7 +130,9 @@ const RecuperarSenha = () => {
                           ref={field.ref}
                         />
                       </FormControl>
-                      <p className="text-xs text-muted-foreground">Apenas números, sem espaços</p>
+                      <p className="text-xs text-muted-foreground">
+                        {FRIENDLY_OTP_MESSAGE}
+                      </p>
                       <FormMessage />
                     </FormItem>
                   )}

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
+import { sanitizeLogError } from "./sanitize-log.ts";
 
 export const PAYMENT_PAID_EVENTS = [
   "PAYMENT_RECEIVED",
@@ -182,8 +183,7 @@ export async function processAsaasWebhook(params: {
         now().toISOString(),
       );
     } catch (e) {
-      const message = e instanceof Error ? e.message : "unknown";
-      console.error("Payment confirmation WhatsApp failed:", message);
+      console.error("Payment confirmation WhatsApp failed:", sanitizeLogError(e));
     }
 
     return { ok: true };

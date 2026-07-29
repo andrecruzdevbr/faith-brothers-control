@@ -3,6 +3,8 @@ import { createServiceClient } from "../_shared/supabase.ts";
 import { normalizeWhatsapp, toSyntheticEmail } from "../_shared/phone.ts";
 import { isValidTaxId, normalizeTaxId } from "../_shared/tax-id.ts";
 import { mapRegisterStudentRpcError } from "../_shared/register-errors.ts";
+import { dispatchRegistrationWhatsApp } from "../_shared/registration-whatsapp.ts";
+import { logSafeError, sanitizeLogError } from "../_shared/sanitize-log.ts";
 
 type RegisterBody = {
   full_name?: string;
@@ -208,12 +210,11 @@ Deno.serve(async (req) => {
       );
 
       if (rpcError) {
-        console.error("register-student RPC failed", {
-          userId: createdUserId,
-          whatsapp,
-          academyId,
-          error: rpcError.message,
-        });
+        logSafeError(
+          "register-student RPC failed",
+          { userId: createdUserId, whatsapp, academyId },
+          rpcError,
+        );
         throw rpcError;
       }
 
@@ -221,12 +222,21 @@ Deno.serve(async (req) => {
         throw new Error("Não foi possível criar o registro do aluno");
       }
 
+      const whatsappInfo = await dispatchRegistrationWhatsApp({
+        supabase,
+        academyId,
+        studentId: String(studentId),
+        fullName,
+        whatsapp,
+      });
+
       return new Response(
         JSON.stringify({
           success: true,
           message: "Cadastro realizado. Aguarde a aprovação da academia.",
           email,
           student_id: studentId,
+          whatsapp: whatsappInfo,
         }),
         { headers },
       );
@@ -234,11 +244,11 @@ Deno.serve(async (req) => {
       if (createdUserId) {
         const { error: deleteError } = await supabase.auth.admin.deleteUser(createdUserId);
         if (deleteError) {
-          console.error("register-student rollback failed", {
-            userId: createdUserId,
-            whatsapp,
-            error: deleteError.message,
-          });
+          logSafeError(
+            "register-student rollback failed",
+            { userId: createdUserId, whatsapp },
+            deleteError,
+          );
         }
       }
 
@@ -247,8 +257,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: mapped.error }), { status: mapped.status, headers });
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Erro desconhecido";
-    console.error("register-student unexpected error", message);
-    return new Response(JSON.stringify({ error: message }), { status: 500, headers });
+    logSafeError("register-student unexpected error", {}, error);
+    return new Response(JSON.stringify({ error: sanitizeLogError(error) }), { status: 500, headers });
   }
 });
