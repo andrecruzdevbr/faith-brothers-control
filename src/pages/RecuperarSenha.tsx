@@ -1,12 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, Send, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { normalizeWhatsapp } from "@/lib/whatsapp-auth";
 import { callEdgeFunction } from "@/lib/api";
@@ -14,17 +11,7 @@ import { callEdgeFunction } from "@/lib/api";
 const FRIENDLY_OTP_MESSAGE =
   "Se o WhatsApp estiver cadastrado, enviaremos um código de recuperação.";
 
-const requestSchema = z.object({
-  whatsapp: z.string().trim().min(10, "Informe seu WhatsApp").max(13).regex(/^\d+$/, "Apenas números"),
-});
-
-const verifySchema = z.object({
-  code: z.string().length(6, "O código deve ter 6 dígitos").regex(/^\d+$/, "Apenas números"),
-  newPassword: z.string().min(8, "Mínimo 8 caracteres").max(100),
-  confirmPassword: z.string().min(8).max(100),
-}).refine(d => d.newPassword === d.confirmPassword, {
-  path: ["confirmPassword"], message: "As senhas não conferem",
-});
+const OTP_LENGTH = 6;
 
 type ResetOtpResponse = {
   success?: boolean;
@@ -37,23 +24,53 @@ type ResetOtpResponse = {
   };
 };
 
+/** Digits-only helper used by inputs and tests. */
+export function digitsOnly(value: string, maxLength?: number): string {
+  const digits = value.replace(/\D/g, "");
+  return typeof maxLength === "number" ? digits.slice(0, maxLength) : digits;
+}
+
+/** Ensures OTP code state never inherits WhatsApp values. */
+export function createEmptyVerifyFields() {
+  return {
+    code: "",
+    newPassword: "",
+    confirmPassword: "",
+  };
+}
+
 const RecuperarSenha = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [step, setStep] = useState<"request" | "verify">("request");
-  const [whatsapp, setWhatsapp] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const requestForm = useForm({ resolver: zodResolver(requestSchema), defaultValues: { whatsapp: "" } });
-  const verifyForm = useForm({ resolver: zodResolver(verifySchema), defaultValues: { code: "", newPassword: "", confirmPassword: "" } });
+  // Estados totalmente separados — nunca compartilhar value/onChange entre campos
+  const [whatsapp, setWhatsapp] = useState("");
+  const [code, setCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [fieldError, setFieldError] = useState<string | null>(null);
 
-  const handleWhatsappChange = (e: React.ChangeEvent<HTMLInputElement>, onChange: (v: string) => void) => {
-    onChange(e.target.value.replace(/\D/g, ""));
+  const resetVerifyFields = () => {
+    const empty = createEmptyVerifyFields();
+    setCode(empty.code);
+    setNewPassword(empty.newPassword);
+    setConfirmPassword(empty.confirmPassword);
+    setFieldError(null);
   };
 
-  const onRequestOtp = async (values: { whatsapp: string }) => {
+  const onRequestOtp = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setFieldError(null);
+
+    const normalized = normalizeWhatsapp(whatsapp);
+    if (!/^\d{10,11}$/.test(normalized)) {
+      setFieldError("Informe um WhatsApp válido com DDD (10 ou 11 dígitos).");
+      return;
+    }
+
     setSubmitting(true);
-    const normalized = normalizeWhatsapp(values.whatsapp);
     try {
       const data = await callEdgeFunction<ResetOtpResponse>(
         "reset-password",
@@ -61,7 +78,9 @@ const RecuperarSenha = () => {
         { requireAuth: false },
       );
 
+      // Guarda WhatsApp para o verify_otp, mas limpa o código
       setWhatsapp(normalized);
+      resetVerifyFields();
       setStep("verify");
 
       const skipped = data.whatsapp?.skipped === true;
@@ -76,7 +95,24 @@ const RecuperarSenha = () => {
     setSubmitting(false);
   };
 
-  const onVerifyOtp = async (values: { code: string; newPassword: string }) => {
+  const onVerifyOtp = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setFieldError(null);
+
+    const cleanCode = digitsOnly(code, OTP_LENGTH);
+    if (cleanCode.length !== OTP_LENGTH) {
+      setFieldError("O código deve ter 6 dígitos.");
+      return;
+    }
+    if (newPassword.length < 8) {
+      setFieldError("A nova senha precisa ter pelo menos 8 caracteres.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setFieldError("As senhas não conferem.");
+      return;
+    }
+
     setSubmitting(true);
     try {
       await callEdgeFunction(
@@ -84,8 +120,8 @@ const RecuperarSenha = () => {
         {
           action: "verify_otp",
           whatsapp,
-          code: values.code,
-          new_password: values.newPassword,
+          code: cleanCode,
+          new_password: newPassword,
         },
         { requireAuth: false },
       );
@@ -96,6 +132,11 @@ const RecuperarSenha = () => {
       toast({ title: "Erro", description: message, variant: "destructive" });
     }
     setSubmitting(false);
+  };
+
+  const goBackToWhatsapp = () => {
+    resetVerifyFields();
+    setStep("request");
   };
 
   return (
@@ -111,86 +152,110 @@ const RecuperarSenha = () => {
 
         <section className="p-8">
           {step === "request" ? (
-            <Form {...requestForm}>
-              <form onSubmit={requestForm.handleSubmit(onRequestOtp)} className="space-y-5">
-                <FormField
-                  control={requestForm.control}
-                  name="whatsapp"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>WhatsApp</FormLabel>
-                      <FormControl>
-                        <Input
-                          inputMode="numeric"
-                          placeholder="(DD) XXXXXXXXX"
-                          value={field.value}
-                          onChange={e => handleWhatsappChange(e, field.onChange)}
-                          onBlur={field.onBlur}
-                          name={field.name}
-                          ref={field.ref}
-                        />
-                      </FormControl>
-                      <p className="text-xs text-muted-foreground">
-                        {FRIENDLY_OTP_MESSAGE}
-                      </p>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+            <form
+              key="request-step"
+              onSubmit={onRequestOtp}
+              className="space-y-5"
+              autoComplete="on"
+            >
+              <div className="space-y-2">
+                <Label htmlFor="reset-whatsapp">WhatsApp</Label>
+                <Input
+                  id="reset-whatsapp"
+                  name="reset-whatsapp"
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  placeholder="(DD) XXXXXXXXX"
+                  value={whatsapp}
+                  disabled={submitting}
+                  onChange={(e) => {
+                    setWhatsapp(digitsOnly(e.target.value, 13));
+                    // Alterar WhatsApp nunca preenche o código
+                    setCode("");
+                  }}
                 />
-                <Button type="submit" className="w-full" disabled={submitting}>
-                  <Send className="h-4 w-4" />
-                  {submitting ? "Enviando..." : "Enviar código"}
-                </Button>
-              </form>
-            </Form>
+                <p className="text-xs text-muted-foreground">{FRIENDLY_OTP_MESSAGE}</p>
+              </div>
+
+              {fieldError && <p className="text-sm text-destructive">{fieldError}</p>}
+
+              <Button type="submit" className="w-full" disabled={submitting}>
+                <Send className="h-4 w-4" />
+                {submitting ? "Enviando..." : "Enviar código"}
+              </Button>
+            </form>
           ) : (
-            <Form {...verifyForm}>
-              <form onSubmit={verifyForm.handleSubmit(onVerifyOtp)} className="space-y-5">
-                <FormField
-                  control={verifyForm.control}
-                  name="code"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Código de 6 dígitos</FormLabel>
-                      <FormControl>
-                        <Input inputMode="numeric" placeholder="000000" maxLength={6} {...field} onChange={e => field.onChange(e.target.value.replace(/\D/g, ""))} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+            <form
+              key={`verify-step-${whatsapp}`}
+              onSubmit={onVerifyOtp}
+              className="space-y-5"
+              autoComplete="off"
+            >
+              <div className="space-y-2">
+                <Label htmlFor="reset-otp-code">Código de 6 dígitos</Label>
+                <Input
+                  id="reset-otp-code"
+                  name="otp-code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="000000"
+                  maxLength={OTP_LENGTH}
+                  value={code}
+                  disabled={submitting}
+                  readOnly={false}
+                  onChange={(e) => setCode(digitsOnly(e.target.value, OTP_LENGTH))}
                 />
-                <FormField
-                  control={verifyForm.control}
-                  name="newPassword"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nova senha</FormLabel>
-                      <FormControl>
-                        <Input type="password" placeholder="••••••••" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                <p className="text-xs text-muted-foreground">
+                  Código enviado para o WhatsApp terminado em {whatsapp.slice(-4)}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="reset-new-password">Nova senha</Label>
+                <Input
+                  id="reset-new-password"
+                  name="new-password"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                  value={newPassword}
+                  disabled={submitting}
+                  onChange={(e) => setNewPassword(e.target.value)}
                 />
-                <FormField
-                  control={verifyForm.control}
-                  name="confirmPassword"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Confirmar nova senha</FormLabel>
-                      <FormControl>
-                        <Input type="password" placeholder="••••••••" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="reset-confirm-password">Confirmar nova senha</Label>
+                <Input
+                  id="reset-confirm-password"
+                  name="confirm-password"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  disabled={submitting}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
                 />
-                <Button type="submit" className="w-full" disabled={submitting}>
-                  <ShieldCheck className="h-4 w-4" />
-                  {submitting ? "Alterando..." : "Alterar senha"}
-                </Button>
-              </form>
-            </Form>
+              </div>
+
+              {fieldError && <p className="text-sm text-destructive">{fieldError}</p>}
+
+              <Button type="submit" className="w-full" disabled={submitting}>
+                <ShieldCheck className="h-4 w-4" />
+                {submitting ? "Alterando..." : "Alterar senha"}
+              </Button>
+
+              <button
+                type="button"
+                className="w-full text-sm text-muted-foreground hover:text-primary"
+                onClick={goBackToWhatsapp}
+                disabled={submitting}
+              >
+                Usar outro WhatsApp / reenviar código
+              </button>
+            </form>
           )}
 
           <p className="mt-6 text-sm text-muted-foreground text-center">
