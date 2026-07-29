@@ -29,5 +29,16 @@ export function mapRegisterStudentRpcError(message: string): { status: number; e
     };
   }
 
+  if (lower.includes("selecione um plano") || lower.includes("plano desejado")) {
+    return { status: 400, error: "Selecione um plano desejado." };
+  }
+
+  if (lower.includes("plano inválido") || lower.includes("plano inativo")) {
+    return {
+      status: 400,
+      error: "Plano inválido ou inativo. Cadastre um plano ativo antes de vincular.",
+    };
+  }
+
   return { status: 500, error: sanitizeBillingError(message) };
 }

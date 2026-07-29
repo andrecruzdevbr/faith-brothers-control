@@ -13,6 +13,7 @@ type RegisterBody = {
   academy_id?: string;
   belt?: string;
   billing_tax_id?: string;
+  plan_id?: string;
 };
 
 type RegistrationState = "available" | "complete" | "partial";
@@ -87,6 +88,7 @@ Deno.serve(async (req) => {
     const academyId = String(body.academy_id ?? "");
     const belt = String(body.belt ?? "Branca").trim() || "Branca";
     const billingTaxId = normalizeTaxId(String(body.billing_tax_id ?? ""));
+    const planId = String(body.plan_id ?? "").trim();
 
     if (!/^\d{11}$/.test(whatsapp)) {
       return new Response(
@@ -123,6 +125,13 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (!planId) {
+      return new Response(JSON.stringify({ error: "Selecione um plano desejado." }), {
+        status: 400,
+        headers,
+      });
+    }
+
     const supabase = createServiceClient();
 
     const { data: academy, error: academyError } = await supabase
@@ -134,6 +143,22 @@ Deno.serve(async (req) => {
     if (academyError) throw new Error(academyError.message);
     if (!academy) {
       return new Response(JSON.stringify({ error: "Academia inválida." }), { status: 400, headers });
+    }
+
+    const { data: plan, error: planError } = await supabase
+      .from("plans")
+      .select("id")
+      .eq("id", planId)
+      .eq("academy_id", academyId)
+      .eq("active", true)
+      .maybeSingle();
+
+    if (planError) throw new Error(planError.message);
+    if (!plan) {
+      return new Response(
+        JSON.stringify({ error: "Plano inválido ou inativo. Cadastre um plano ativo antes de vincular." }),
+        { status: 400, headers },
+      );
     }
 
     const email = toSyntheticEmail(whatsapp);
@@ -206,6 +231,7 @@ Deno.serve(async (req) => {
           _whatsapp: whatsapp,
           _belt: belt,
           _tax_id: billingTaxId,
+          _plan_id: planId,
         },
       );
 

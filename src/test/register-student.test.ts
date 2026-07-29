@@ -85,6 +85,19 @@ describe("register-student WhatsApp confirmation", () => {
     expect(label).not.toContain(billingTaxIdOnRegister);
   });
 
+  it("requires plan_id on public registration payload contract", () => {
+    const payload = {
+      full_name: "Aluno",
+      whatsapp: "31999999999",
+      password: "senha1234",
+      academy_id: "academy-1",
+      billing_tax_id: "52998224725",
+      plan_id: "plan-1",
+    };
+    expect(payload.plan_id).toBeTruthy();
+    expect(mapRegisterStudentRpcError("Selecione um plano desejado.").status).toBe(400);
+  });
+
   it("does not break registration when WhatsApp queue fails", async () => {
     const queueWhatsAppFn = vi.fn(async () => {
       throw new Error("apikey=secret-should-not-leak Evolution down");

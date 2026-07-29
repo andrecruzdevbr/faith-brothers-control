@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Search, Plus, ChevronLeft, ChevronRight, Check, Loader2, Shield } from "lucide-react";
+import { Search, Plus, ChevronLeft, ChevronRight, Check, Loader2, Shield, Wallet, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { StudentBillingTaxIdEditor } from "@/components/StudentBillingTaxIdEditor";
+import { StudentPlanEditor } from "@/components/StudentPlanEditor";
 import { supabase } from "@/integrations/supabase/client";
 import { useAcademyId, useStudents } from "@/hooks/useQueries";
 import { useAuth } from "@/contexts/AuthContext";
@@ -23,7 +24,18 @@ import {
   isMissingBillingTaxId,
   type MaskedTaxIdInfo,
 } from "@/lib/tax-id";
+import {
+  formatPendingPlanChangeLabel,
+  formatPlanCurrentLabel,
+} from "@/lib/plans";
 import type { Enums } from "@/integrations/supabase/types";
+
+type PendingPlanChangeRow = {
+  id: string;
+  student_id: string;
+  requested_plan_id: string;
+  requested_plan?: { name: string; monthly_price: number } | { name: string; monthly_price: number }[] | null;
+};
 
 const beltColors: Record<string, string> = {
   Branca: "bg-foreground",
@@ -107,6 +119,11 @@ const Alunos = () => {
   const [search, setSearch] = useState("");
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [taxStudent, setTaxStudent] = useState<{ id: string; name: string } | null>(null);
+  const [planStudent, setPlanStudent] = useState<{
+    id: string;
+    name: string;
+    planId: string | null;
+  } | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -140,6 +157,57 @@ const Alunos = () => {
     enabled: !!academyId && isStaff && studentIds.length > 0,
     queryFn: () => fetchMaskedTaxIdMap(academyId!, studentIds),
   });
+
+  const { data: pendingPlanMap } = useQuery({
+    queryKey: ["pending-plan-changes", academyId],
+    enabled: !!academyId && isStaff,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("student_plan_change_requests")
+        .select("id, student_id, requested_plan_id, requested_plan:plans!requested_plan_id(name, monthly_price)")
+        .eq("status", "pending");
+      if (error) throw error;
+      const map = new Map<string, PendingPlanChangeRow>();
+      for (const row of (data ?? []) as PendingPlanChangeRow[]) {
+        map.set(row.student_id, row);
+      }
+      return map;
+    },
+  });
+
+  const invalidatePlanQueries = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["students"] });
+    await queryClient.invalidateQueries({ queryKey: ["pending-plan-changes"] });
+    await queryClient.invalidateQueries({ queryKey: ["student-financial-map"] });
+  };
+
+  const handleReviewPlanChange = async (requestId: string, approve: boolean) => {
+    setApprovingId(requestId);
+    try {
+      const { error } = await supabase.rpc(
+        approve ? "approve_student_plan_change" : "reject_student_plan_change",
+        { _request_id: requestId },
+      );
+      if (error) throw error;
+      toast({
+        title: approve ? "Mudança de plano aprovada" : "Mudança de plano recusada",
+        description: approve
+          ? "O plano atual do aluno foi atualizado."
+          : "O plano atual do aluno foi mantido.",
+      });
+      await invalidatePlanQueries();
+    } catch (e) {
+      const description =
+        e && typeof e === "object" && "message" in e && typeof (e as { message: unknown }).message === "string"
+          ? (e as { message: string }).message
+          : e instanceof Error
+            ? e.message
+            : "Tente novamente.";
+      toast({ title: "Erro ao processar mudança de plano", description, variant: "destructive" });
+    } finally {
+      setApprovingId(null);
+    }
+  };
 
   const handleApprove = async (studentId: string, approve: boolean) => {
     setApprovingId(studentId);
@@ -216,7 +284,7 @@ const Alunos = () => {
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Aluno</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Faixa</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">Telefone</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden lg:table-cell">Plano</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden lg:table-cell">Plano atual</th>
                   {isStaff && (
                     <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">CPF/CNPJ</th>
                   )}
@@ -236,6 +304,19 @@ const Alunos = () => {
                   const taxInfo = taxIdMap?.get(aluno.id);
                   const taxLabel = formatBillingTaxIdLabel(taxInfo);
                   const taxMissing = isMissingBillingTaxId(taxInfo);
+                  const pendingChange = pendingPlanMap?.get(aluno.id);
+                  const requestedPlan = pendingChange
+                    ? Array.isArray(pendingChange.requested_plan)
+                      ? pendingChange.requested_plan[0]
+                      : pendingChange.requested_plan
+                    : null;
+                  const planLabel = formatPlanCurrentLabel(
+                    plan
+                      ? { name: plan.name, monthly_price: plan.monthly_price }
+                      : fin?.plan_name
+                        ? { name: fin.plan_name, monthly_price: null }
+                        : null,
+                  );
 
                   return (
                     <tr key={aluno.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
@@ -255,8 +336,13 @@ const Alunos = () => {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-sm text-muted-foreground hidden md:table-cell">{formatWhatsapp(aluno.whatsapp)}</td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground hidden lg:table-cell">
-                        {plan?.name ?? fin?.plan_name ?? "—"}
+                      <td className="px-4 py-3 hidden lg:table-cell">
+                        <div className="text-sm text-muted-foreground">{planLabel}</div>
+                        {pendingChange ? (
+                          <p className="mt-1 text-xs text-warning">
+                            {formatPendingPlanChangeLabel(requestedPlan?.name)}
+                          </p>
+                        ) : null}
                       </td>
                       {isStaff && (
                         <td className="px-4 py-3">
@@ -289,6 +375,53 @@ const Alunos = () => {
                       {isStaff && (
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 gap-1"
+                              disabled={!isAdmin && !!pendingChange}
+                              onClick={() =>
+                                setPlanStudent({
+                                  id: aluno.id,
+                                  name: aluno.full_name,
+                                  planId: aluno.plan_id,
+                                })
+                              }
+                            >
+                              <Wallet className="h-3 w-3" />
+                              {isAdmin
+                                ? aluno.plan_id
+                                  ? "Alterar plano"
+                                  : "Vincular plano"
+                                : "Solicitar mudança"}
+                            </Button>
+                            {isAdmin && pendingChange ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  className="gradient-primary text-primary-foreground h-8 gap-1"
+                                  disabled={approvingId === pendingChange.id}
+                                  onClick={() => void handleReviewPlanChange(pendingChange.id, true)}
+                                >
+                                  {approvingId === pendingChange.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Check className="h-3 w-3" />
+                                  )}
+                                  Aprovar mudança
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 gap-1"
+                                  disabled={approvingId === pendingChange.id}
+                                  onClick={() => void handleReviewPlanChange(pendingChange.id, false)}
+                                >
+                                  <X className="h-3 w-3" />
+                                  Recusar mudança
+                                </Button>
+                              </>
+                            ) : null}
                             <Button
                               size="sm"
                               variant="outline"
@@ -359,6 +492,33 @@ const Alunos = () => {
               studentId={taxStudent.id}
               onSaved={() => {
                 void queryClient.invalidateQueries({ queryKey: ["student-tax-masked"] });
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!planStudent} onOpenChange={(open) => !open && setPlanStudent(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {isAdmin
+                ? planStudent?.planId
+                  ? "Alterar plano"
+                  : "Vincular plano"
+                : "Solicitar mudança de plano"}{" "}
+              — {planStudent?.name}
+            </DialogTitle>
+          </DialogHeader>
+          {planStudent && academyId && (
+            <StudentPlanEditor
+              studentId={planStudent.id}
+              academyId={academyId}
+              currentPlanId={planStudent.planId}
+              mode={isAdmin ? "admin" : "request"}
+              onSaved={() => {
+                void invalidatePlanQueries();
+                setPlanStudent(null);
               }}
             />
           )}

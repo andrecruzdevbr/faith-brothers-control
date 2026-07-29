@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { callEdgeFunction } from "@/lib/api";
 import { isValidBrazilianWhatsapp, normalizeWhatsapp } from "@/lib/whatsapp-auth";
 import { isValidTaxId, normalizeTaxId } from "@/lib/tax-id";
+import { formatPlanOptionLabel, type PlanOption } from "@/lib/plans";
 
 const BELTS = [
   "Branca",
@@ -38,6 +39,7 @@ const signupSchema = z
         message: "Informe um WhatsApp com 11 dígitos (DDD + número)",
       }),
     academyId: z.string().uuid("Selecione uma academia"),
+    planId: z.string().uuid("Selecione o plano desejado"),
     billingTaxId: z
       .string()
       .trim()
@@ -64,6 +66,8 @@ const Cadastro = () => {
   const [submitting, setSubmitting] = useState(false);
   const [academies, setAcademies] = useState<AcademyOption[]>([]);
   const [loadingAcademies, setLoadingAcademies] = useState(true);
+  const [plans, setPlans] = useState<PlanOption[]>([]);
+  const [loadingPlans, setLoadingPlans] = useState(false);
 
   const form = useForm<SignupValues>({
     resolver: zodResolver(signupSchema),
@@ -71,12 +75,15 @@ const Cadastro = () => {
       fullName: "",
       whatsapp: "",
       academyId: "",
+      planId: "",
       billingTaxId: "",
       belt: "Branca",
       password: "",
       confirmPassword: "",
     },
   });
+
+  const selectedAcademyId = form.watch("academyId");
 
   useEffect(() => {
     const loadAcademies = async () => {
@@ -90,6 +97,46 @@ const Cadastro = () => {
     };
     void loadAcademies();
   }, [toast]);
+
+  useEffect(() => {
+    form.setValue("planId", "");
+    if (!selectedAcademyId) {
+      setPlans([]);
+      setLoadingPlans(false);
+      return;
+    }
+
+    let cancelled = false;
+    const loadPlans = async () => {
+      setLoadingPlans(true);
+      const { data, error } = await supabase.rpc("get_public_active_plans", {
+        _academy_id: selectedAcademyId,
+      });
+      if (cancelled) return;
+      if (error) {
+        toast({
+          title: "Não foi possível carregar os planos",
+          description: error.message,
+          variant: "destructive",
+        });
+        setPlans([]);
+      } else {
+        setPlans(
+          (data ?? []).map((p) => ({
+            id: p.id,
+            name: p.name,
+            monthly_price: Number(p.monthly_price),
+            training_days_per_week: p.training_days_per_week,
+          })),
+        );
+      }
+      setLoadingPlans(false);
+    };
+    void loadPlans();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAcademyId, form, toast]);
 
   if (!loading && isAuthenticated) {
     return <Navigate to={isStaff ? "/dashboard" : "/minha-presenca"} replace />;
@@ -114,6 +161,7 @@ const Cadastro = () => {
           academy_id: values.academyId,
           belt: values.belt || "Branca",
           billing_tax_id: normalizeTaxId(values.billingTaxId),
+          plan_id: values.planId,
         },
         { requireAuth: false },
       );
@@ -134,6 +182,8 @@ const Cadastro = () => {
       setSubmitting(false);
     }
   };
+
+  const noActivePlans = !!selectedAcademyId && !loadingPlans && plans.length === 0;
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4 py-10">
@@ -218,7 +268,11 @@ const Cadastro = () => {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Academia</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value} disabled={loadingAcademies}>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value || undefined}
+                      disabled={loadingAcademies}
+                    >
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder={loadingAcademies ? "Carregando..." : "Selecione a academia"} />
@@ -232,6 +286,54 @@ const Cadastro = () => {
                         ))}
                       </SelectContent>
                     </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="planId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Plano desejado</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value || undefined}
+                      disabled={!selectedAcademyId || loadingPlans || noActivePlans}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue
+                            placeholder={
+                              !selectedAcademyId
+                                ? "Selecione a academia primeiro"
+                                : loadingPlans
+                                  ? "Carregando planos..."
+                                  : noActivePlans
+                                    ? "Nenhum plano disponível"
+                                    : "Selecione o plano"
+                            }
+                          />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {plans.map((plan) => (
+                          <SelectItem key={plan.id} value={plan.id}>
+                            {formatPlanOptionLabel(plan)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {noActivePlans ? (
+                      <p className="text-sm text-warning">
+                        Cadastre um plano ativo antes de vincular.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Você fica pendente até a academia aprovar. Nenhuma cobrança é gerada no cadastro.
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -292,7 +394,11 @@ const Cadastro = () => {
                 />
               </div>
 
-              <Button type="submit" className="w-full" disabled={submitting || loadingAcademies}>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={submitting || loadingAcademies || loadingPlans || noActivePlans}
+              >
                 <UserPlus className="h-4 w-4" />
                 {submitting ? "Criando conta..." : "Criar conta"}
               </Button>

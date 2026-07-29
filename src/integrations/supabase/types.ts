@@ -478,6 +478,70 @@ export type Database = {
           },
         ]
       }
+      student_plan_change_requests: {
+        Row: {
+          id: string
+          student_id: string
+          current_plan_id: string | null
+          requested_plan_id: string
+          requested_by: string
+          requested_by_role: string
+          status: Database["public"]["Enums"]["plan_change_request_status"]
+          reviewed_by: string | null
+          reviewed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          student_id: string
+          current_plan_id?: string | null
+          requested_plan_id: string
+          requested_by: string
+          requested_by_role: string
+          status?: Database["public"]["Enums"]["plan_change_request_status"]
+          reviewed_by?: string | null
+          reviewed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          student_id?: string
+          current_plan_id?: string | null
+          requested_plan_id?: string
+          requested_by?: string
+          requested_by_role?: string
+          status?: Database["public"]["Enums"]["plan_change_request_status"]
+          reviewed_by?: string | null
+          reviewed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_plan_change_requests_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_plan_change_requests_current_plan_id_fkey"
+            columns: ["current_plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_plan_change_requests_requested_plan_id_fkey"
+            columns: ["requested_plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       classes: {
         Row: {
           id: string
@@ -647,6 +711,31 @@ export type Database = {
           slug: string
         }[]
       }
+      get_public_active_plans: {
+        Args: { _academy_id: string }
+        Returns: {
+          id: string
+          name: string
+          monthly_price: number
+          training_days_per_week: number
+        }[]
+      }
+      update_student_plan: {
+        Args: { _student_id: string; _plan_id?: string | null }
+        Returns: undefined
+      }
+      request_student_plan_change: {
+        Args: { _student_id: string; _requested_plan_id: string }
+        Returns: string
+      }
+      approve_student_plan_change: {
+        Args: { _request_id: string }
+        Returns: undefined
+      }
+      reject_student_plan_change: {
+        Args: { _request_id: string }
+        Returns: undefined
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -704,6 +793,7 @@ export type Database = {
         | "cancelado"
         | "falhou"
       student_status: "ativo" | "inativo" | "pendente_aprovacao" | "rejeitado"
+      plan_change_request_status: "pending" | "approved" | "rejected"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -841,7 +931,8 @@ export const Constants = {
         "cancelado",
         "falhou",
       ],
-      student_status: ["ativo", "inativo"],
+      student_status: ["ativo", "inativo", "pendente_aprovacao", "rejeitado"],
+      plan_change_request_status: ["pending", "approved", "rejected"],
     },
   },
 } as const

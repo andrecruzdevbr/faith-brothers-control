@@ -1,12 +1,26 @@
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
-  DollarSign, CheckCircle, AlertCircle, Clock, ExternalLink, Receipt, History,
+  DollarSign, CheckCircle, AlertCircle, Clock, ExternalLink, Receipt, History, Wallet,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { StudentPlanEditor } from "@/components/StudentPlanEditor";
 import { useMyBillings } from "@/hooks/useQueries";
 import { formatCurrency, formatDateBR } from "@/lib/api";
 import { BILLING_STATUS_LABELS } from "@/lib/constants";
+import {
+  formatPendingPlanChangeLabel,
+  formatPlanCurrentLabel,
+} from "@/lib/plans";
+import { supabase } from "@/integrations/supabase/client";
 import type { Enums } from "@/integrations/supabase/types";
 
 function deriveOverallStatus(billings: { status: Enums<"billing_status">; due_date: string }[]) {
@@ -39,7 +53,41 @@ const billingStatusClass: Record<string, string> = {
 };
 
 const MeuFinanceiro = () => {
+  const queryClient = useQueryClient();
   const { data, isLoading } = useMyBillings();
+  const [requestOpen, setRequestOpen] = useState(false);
+
+  const student = data && !Array.isArray(data) ? data.student : null;
+  const billings = data && !Array.isArray(data) ? data.billings : [];
+
+  const { data: academyId } = useQuery({
+    queryKey: ["my-student-academy", student?.id],
+    enabled: !!student?.id,
+    queryFn: async () => {
+      const { data: row, error } = await supabase
+        .from("students")
+        .select("academy_id")
+        .eq("id", student!.id)
+        .maybeSingle();
+      if (error) throw error;
+      return row?.academy_id ?? null;
+    },
+  });
+
+  const { data: pendingChange } = useQuery({
+    queryKey: ["my-pending-plan-change", student?.id],
+    enabled: !!student?.id,
+    queryFn: async () => {
+      const { data: rows, error } = await supabase
+        .from("student_plan_change_requests")
+        .select("id, requested_plan_id, requested_plan:plans!requested_plan_id(name, monthly_price)")
+        .eq("student_id", student!.id)
+        .eq("status", "pending")
+        .maybeSingle();
+      if (error) throw error;
+      return rows;
+    },
+  });
 
   if (isLoading) {
     return (
@@ -52,10 +100,13 @@ const MeuFinanceiro = () => {
     );
   }
 
-  const student = data && !Array.isArray(data) ? data.student : null;
-  const billings = data && !Array.isArray(data) ? data.billings : [];
   const plan = student?.plans;
   const planInfo = Array.isArray(plan) ? plan[0] : plan;
+  const requestedPlan = pendingChange
+    ? Array.isArray(pendingChange.requested_plan)
+      ? pendingChange.requested_plan[0]
+      : pendingChange.requested_plan
+    : null;
 
   const overallKey = deriveOverallStatus(billings);
   const current = statusConfig[overallKey];
@@ -94,21 +145,50 @@ const MeuFinanceiro = () => {
         transition={{ delay: 0.1 }}
         className="rounded-xl border border-border bg-card p-6 shadow-card"
       >
-        <div className="flex items-center gap-2 mb-4">
-          <DollarSign className="h-5 w-5 text-primary" />
-          <h3 className="font-display text-lg font-bold tracking-wider">DETALHES DO PLANO</h3>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <DollarSign className="h-5 w-5 text-primary" />
+            <h3 className="font-display text-lg font-bold tracking-wider">DETALHES DO PLANO</h3>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1"
+            disabled={!!pendingChange || !academyId}
+            onClick={() => setRequestOpen(true)}
+          >
+            <Wallet className="h-3.5 w-3.5" />
+            Solicitar mudança
+          </Button>
         </div>
         <div className="space-y-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Plano</span>
-            <span className="text-foreground font-medium">{planInfo?.name ?? "—"}</span>
+          <div className="flex justify-between gap-4">
+            <span className="text-muted-foreground">Plano atual</span>
+            <span className="text-foreground font-medium text-right">
+              {formatPlanCurrentLabel(
+                planInfo
+                  ? { name: planInfo.name, monthly_price: planInfo.monthly_price }
+                  : null,
+              )}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Valor mensal</span>
             <span className="text-foreground font-medium">
-              {planInfo?.monthly_price ? formatCurrency(Number(planInfo.monthly_price)) : "—"}
+              {planInfo?.monthly_price != null
+                ? formatCurrency(Number(planInfo.monthly_price))
+                : "—"}
             </span>
           </div>
+          {pendingChange ? (
+            <p className="text-xs text-warning">
+              {formatPendingPlanChangeLabel(requestedPlan?.name)}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              A mudança de plano precisa da aprovação do administrador. A cobrança segue o plano atual até lá.
+            </p>
+          )}
           {latestBilling && (
             <>
               <div className="flex justify-between">
@@ -246,6 +326,27 @@ const MeuFinanceiro = () => {
           </div>
         )}
       </motion.div>
+
+      <Dialog open={requestOpen} onOpenChange={setRequestOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Solicitar mudança de plano</DialogTitle>
+          </DialogHeader>
+          {academyId && (
+            <StudentPlanEditor
+              studentId={student.id}
+              academyId={academyId}
+              currentPlanId={student.plan_id}
+              mode="request"
+              onSaved={() => {
+                void queryClient.invalidateQueries({ queryKey: ["my-pending-plan-change"] });
+                void queryClient.invalidateQueries({ queryKey: ["my-billings"] });
+                setRequestOpen(false);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
