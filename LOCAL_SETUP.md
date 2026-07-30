@@ -55,12 +55,7 @@ npm install
 
 Isso instala todas as dependências listadas em `package.json`
 (React, Vite, Tailwind, shadcn/ui, Supabase JS client, react-hook-form,
-zod, recharts, etc.). O projeto também tem `bun.lock`/`bun.lockb` — se
-preferir usar Bun no lugar do npm:
-
-```bash
-bun install
-```
+zod, recharts, etc.).
 
 ---
 
