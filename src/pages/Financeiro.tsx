@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
-  DollarSign, TrendingUp, AlertCircle, CheckCircle, MessageCircle,
+  TrendingUp, AlertCircle, CheckCircle, MessageCircle,
   ChevronLeft, ChevronRight, Loader2, ExternalLink, Receipt, Send,
 } from "lucide-react";
 import { StatsCard } from "@/components/StatsCard";
@@ -36,6 +36,7 @@ import { BILLING_STATUS_LABELS, PAGE_SIZE } from "@/lib/constants";
 import {
   formatBillingSettingsLabel,
   summarizeBillingRunText,
+  summarizeOverdueReminderText,
   collectBillingErrors,
   formatBillingErrorDetail,
   listSelectableBillingPeriods,
@@ -78,6 +79,7 @@ type SendResponse = {
   summary?: BillingRunSummary;
   processed?: BillingErrorDetail[];
   errors?: BillingErrorDetail[];
+  overdueFound?: number;
   sent?: boolean;
   skipped?: boolean;
   reason?: string;
@@ -109,7 +111,7 @@ const Financeiro = () => {
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<
-    null | "generate" | "generate_send" | "send_pending"
+    null | "generate_send" | "overdue"
   >(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summaryLines, setSummaryLines] = useState<string[]>([]);
@@ -288,21 +290,28 @@ const Financeiro = () => {
     }
   };
 
-  const runSendPending = async () => {
-    setBusyAction("send_pending");
+  const runOverdueReminders = async () => {
+    setBusyAction("overdue");
     try {
       const data = await callEdgeFunction<SendResponse>("send-billing-whatsapp", {
-        scope: "pending_month",
+        scope: "overdue_reminder",
       });
-      showSummary(data.summary, data.processed, data.errors);
+      setSummaryLines(
+        summarizeOverdueReminderText({
+          overdueFound: data.overdueFound,
+          summary: data.summary,
+        }),
+      );
+      setSummaryErrors(collectBillingErrors(data.processed, data.errors));
+      setSummaryOpen(true);
       toast({
-        title: "Envio coletivo processado",
-        description: "Cobranças pendentes do mês foram processadas.",
+        title: "Cobrança de atrasados processada",
+        description: "Lembretes enviados apenas para mensalidades após o dia 18, sem gerar novo boleto.",
       });
       await invalidateFinance();
     } catch (e) {
       toast({
-        title: "Erro no envio coletivo",
+        title: "Erro na cobrança de atrasados",
         description: e instanceof Error ? e.message : "Tente novamente.",
         variant: "destructive",
       });
@@ -445,48 +454,47 @@ const Financeiro = () => {
         </div>
 
         {isAdmin && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
-            <Button
-              variant="outline"
-              className="gap-2 w-full justify-center"
-              disabled={!!busyAction || dueDatePast}
-              onClick={() => setConfirmAction("generate")}
-            >
-              {busyAction === "generate" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />}
-              Gerar cobranças de {selectedPeriod.labelPt}
-            </Button>
-            <Button
-              className="gradient-primary text-primary-foreground gap-2 w-full justify-center"
-              disabled={!!busyAction || dueDatePast}
-              onClick={() => setConfirmAction("generate_send")}
-            >
-              {busyAction === "generate_send" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              Gerar e enviar {selectedPeriod.labelPt}
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-2 w-full justify-center sm:col-span-2 xl:col-span-1"
-              disabled={!!busyAction}
-              onClick={() => setConfirmAction("send_pending")}
-            >
-              {busyAction === "send_pending" ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <MessageCircle className="h-4 w-4" />
-              )}
-              Enviar WhatsApp para pendentes
-            </Button>
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Button
+                className="gradient-primary text-primary-foreground gap-2 w-full justify-center"
+                disabled={!!busyAction || dueDatePast}
+                onClick={() => setConfirmAction("generate_send")}
+              >
+                {busyAction === "generate_send" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                Gerar e enviar {selectedPeriod.labelPt}
+              </Button>
+              <Button
+                variant="outline"
+                className="gap-2 w-full justify-center"
+                disabled={!!busyAction}
+                onClick={() => setConfirmAction("overdue")}
+              >
+                {busyAction === "overdue" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <MessageCircle className="h-4 w-4" />
+                )}
+                Cobrar mensalidades atrasadas
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Fluxo normal: automático no dia {issueDay} (boleto + WhatsApp).
+              {" "}
+              “Gerar e enviar” é manual para falha ou reprocessamento.
+              {" "}
+              Atrasados: lembrete após o dia 18, sem criar novo boleto.
+            </p>
           </div>
         )}
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatsCard title="Faturamento Mês" value={formatCurrency(stats?.monthRevenue ?? 0)} icon={DollarSign} variant="primary" />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <StatsCard title="A Receber" value={formatCurrency(financeExtras?.aReceber ?? 0)} icon={TrendingUp} variant="warning" />
           <StatsCard title="Inadimplentes" value={stats?.overdueCount ?? 0} icon={AlertCircle} variant="destructive" />
           <StatsCard title="Pagos no Mês" value={financeExtras?.paidCount ?? 0} icon={CheckCircle} variant="success" />
@@ -754,27 +762,13 @@ const Financeiro = () => {
         )}
       </motion.div>
 
-      <AlertDialog open={confirmAction === "generate"} onOpenChange={(open) => !open && setConfirmAction(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Gerar cobranças de {selectedPeriod.labelPt}</AlertDialogTitle>
-            <AlertDialogDescription>
-              Gerar cobranças com vencimento em {selectedPeriod.dueDateLabelPt} para alunos ativos com plano e CPF/CNPJ?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void runGenerate(false)}>Gerar</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       <AlertDialog open={confirmAction === "generate_send"} onOpenChange={(open) => !open && setConfirmAction(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Gerar e enviar {selectedPeriod.labelPt}</AlertDialogTitle>
             <AlertDialogDescription>
-              Gerar cobranças com vencimento em {selectedPeriod.dueDateLabelPt} e enviar pelo WhatsApp para alunos ativos?
+              Reprocessamento manual: gera boleto se ainda não existir (vencimento {selectedPeriod.dueDateLabelPt})
+              e envia WhatsApp. Não duplica cobrança paga nem boleto já gerado.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -784,17 +778,18 @@ const Financeiro = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={confirmAction === "send_pending"} onOpenChange={(open) => !open && setConfirmAction(null)}>
+      <AlertDialog open={confirmAction === "overdue"} onOpenChange={(open) => !open && setConfirmAction(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Enviar WhatsApp para pendentes</AlertDialogTitle>
+            <AlertDialogTitle>Cobrar mensalidades atrasadas</AlertDialogTitle>
             <AlertDialogDescription>
-              Enviar cobranças abertas do mês atual (com boleto, ainda não pagas) pelo WhatsApp?
+              Envia lembrete educado por WhatsApp para cobranças em aberto após o dia 18 do mês de vencimento.
+              Não cria novo boleto e não inclui alunos pagos ou inativos.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void runSendPending()}>Enviar</AlertDialogAction>
+            <AlertDialogAction onClick={() => void runOverdueReminders()}>Cobrar atrasados</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -126,13 +126,18 @@ export function summarizeBillingProcessed(
         summary.errors += 1;
         break;
       case "whatsapp_sent":
+      case "overdue_reminder_sent":
         summary.whatsappSent += 1;
         break;
       case "whatsapp_skipped":
       case "whatsapp_skipped_missing_recipient":
       case "whatsapp_skipped_no_boleto":
+      case "whatsapp_skipped_sandbox_boleto":
       case "whatsapp_skipped_paid":
       case "whatsapp_already_sent":
+      case "overdue_reminder_skipped":
+      case "overdue_reminder_too_early":
+      case "overdue_reminder_already_sent":
         summary.whatsappSkipped += 1;
         break;
       default:

@@ -181,17 +181,40 @@ curl -X POST "https://SEU-PROJECT-REF.supabase.co/functions/v1/generate-monthly-
 
 ---
 
-## Passo 6 — Cron jobs externos
+## Passo 6 — Cron jobs (GitHub Actions + opcional externo)
 
-O free tier do Supabase **não** executa `pg_cron` de forma confiável. Use agendador externo.
+O free tier do Supabase **não** executa `pg_cron` de forma confiável.
+O agendamento **real** do projeto está em:
 
-### Cobrança mensal (dia 12, 08:00 BRT)
+**`.github/workflows/billing-cron.yml`** (GitHub Actions)
+
+| Quando (BRT) | Função | Body |
+|---|---|---|
+| Dia **10**, 08:00 | `generate-monthly-billings` | `{}` (usa `send_whatsapp_automatically`) |
+| Dia **18**, 08:00 | `send-billing-whatsapp` | `{"scope":"overdue_reminder"}` |
+
+Secrets do repositório GitHub (Settings → Secrets):
+
+- `SUPABASE_FUNCTIONS_BASE_URL` = `https://wojqjxtaqjasnfhbotxi.supabase.co/functions/v1`
+- `BILLING_CRON_SECRET` = mesmo valor do secret Supabase
+
+Também é possível disparar manualmente: Actions → **Billing cron** → Run workflow.
+
+### Alternativa (cron-job.org / similar)
 
 ```
 POST https://SEU-PROJECT-REF.supabase.co/functions/v1/generate-monthly-billings
 Header: x-cron-secret: <BILLING_CRON_SECRET>
 Header: Content-Type: application/json
 Body: {}
+```
+
+Dia 18 (atrasados):
+
+```
+POST .../send-billing-whatsapp
+Header: x-cron-secret: <BILLING_CRON_SECRET>
+Body: {"scope":"overdue_reminder"}
 ```
 
 ### Fila WhatsApp (a cada 5 minutos)
@@ -201,8 +224,8 @@ POST https://SEU-PROJECT-REF.supabase.co/functions/v1/process-whatsapp-queue
 Header: x-cron-secret: <BILLING_CRON_SECRET>
 ```
 
-- [ ] Configurar em [cron-job.org](https://cron-job.org), GitHub Actions ou similar.
-- [ ] Testar execução manual uma vez e verificar logs no Supabase → Edge Functions → Logs.
+- [ ] Confirmar secrets no GitHub Actions.
+- [ ] Testar `workflow_dispatch` (generate) e verificar logs no Supabase → Edge Functions.
 
 ---
 

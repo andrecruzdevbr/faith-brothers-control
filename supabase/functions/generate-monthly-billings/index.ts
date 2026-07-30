@@ -26,6 +26,8 @@ import {
   unwrapRelation,
 } from "../_shared/asaas-billing.ts";
 import { normalizeTaxId, sanitizeBillingError } from "../_shared/tax-id.ts";
+import { assertSendableBoletoUrl } from "../_shared/billing-boleto.ts";
+import { canReprocessFailedBilling } from "../_shared/billing-overdue.ts";
 
 type StudentBillingProfile = {
   tax_id: string | null;
@@ -203,9 +205,22 @@ async function dispatchBillingWhatsApp(params: {
   amount: number;
   dueDate: string;
   boletoUrl: string | null;
-}): Promise<"sent_whatsapp" | "queued_whatsapp_send_disabled" | "skipped_missing_whatsapp"> {
+}): Promise<
+  | "sent_whatsapp"
+  | "queued_whatsapp_send_disabled"
+  | "skipped_missing_whatsapp"
+  | "whatsapp_skipped_no_boleto"
+  | "whatsapp_skipped_sandbox_boleto"
+> {
   if (!hasValidStudentWhatsapp(params.student.whatsapp)) {
     return "skipped_missing_whatsapp";
+  }
+
+  const boletoCheck = assertSendableBoletoUrl(params.boletoUrl);
+  if (!boletoCheck.ok) {
+    return boletoCheck.reason === "sandbox_boleto"
+      ? "whatsapp_skipped_sandbox_boleto"
+      : "whatsapp_skipped_no_boleto";
   }
 
   const whatsappResult = await queueWhatsApp({
@@ -220,7 +235,7 @@ async function dispatchBillingWhatsApp(params: {
       params.planName,
       params.amount,
       params.dueDate,
-      params.boletoUrl,
+      boletoCheck.url,
     ),
     messageType: "billing",
     sendImmediately: true,
@@ -283,7 +298,7 @@ Deno.serve(async (req) => {
     const defaultPeriodResult = resolveBillingPeriod({
       now,
       dueDay: 15,
-      issueDay: 1,
+      issueDay: 10,
       referenceMonth: requestedReferenceMonth,
       rejectPast: false,
     });
@@ -407,49 +422,67 @@ Deno.serve(async (req) => {
         .eq("reference_month", period.referenceMonth)
         .maybeSingle();
 
-      if (existingBilling) {
-        processed.push({
-          studentId: student.id,
-          studentName: student.full_name,
-          billingId: existingBilling.id,
-          status: "already_exists",
-        });
+      let reprocessBillingId: string | null = null;
 
-        if (
-          sendWhatsApp &&
-          existingBilling.status !== "pago" &&
-          existingBilling.status !== "cancelado" &&
-          existingBilling.boleto_url &&
-          (existingBilling.status === "pendente" || existingBilling.status === "gerado")
-        ) {
-          const existingPlan = unwrapRelation(
-            existingBilling.plans as { name: string } | { name: string }[] | null,
-          );
-          const planName = existingPlan?.name ?? plan.name;
-          const waStatus = await dispatchBillingWhatsApp({
-            supabase,
-            student,
-            academy,
-            billingId: existingBilling.id,
-            planName,
-            amount: Number(existingBilling.amount),
-            dueDate: String(existingBilling.due_date),
-            boletoUrl: existingBilling.boleto_url,
-          });
-          whatsappHandledBillingIds.add(existingBilling.id);
+      if (existingBilling) {
+        if (existingBilling.status === "pago") {
           processed.push({
             studentId: student.id,
             studentName: student.full_name,
             billingId: existingBilling.id,
-            status:
-              waStatus === "sent_whatsapp"
-                ? "whatsapp_sent"
-                : waStatus === "skipped_missing_whatsapp"
-                  ? "whatsapp_skipped_missing_recipient"
-                  : "whatsapp_skipped",
+            status: "already_exists",
           });
+          continue;
         }
-        continue;
+
+        if (canReprocessFailedBilling(existingBilling.status)) {
+          reprocessBillingId = existingBilling.id;
+        } else {
+          processed.push({
+            studentId: student.id,
+            studentName: student.full_name,
+            billingId: existingBilling.id,
+            status: "already_exists",
+          });
+
+          if (
+            sendWhatsApp &&
+            existingBilling.boleto_url &&
+            (existingBilling.status === "pendente" || existingBilling.status === "gerado")
+          ) {
+            const existingPlan = unwrapRelation(
+              existingBilling.plans as { name: string } | { name: string }[] | null,
+            );
+            const planName = existingPlan?.name ?? plan.name;
+            const waStatus = await dispatchBillingWhatsApp({
+              supabase,
+              student,
+              academy,
+              billingId: existingBilling.id,
+              planName,
+              amount: Number(existingBilling.amount),
+              dueDate: String(existingBilling.due_date),
+              boletoUrl: existingBilling.boleto_url,
+            });
+            whatsappHandledBillingIds.add(existingBilling.id);
+            processed.push({
+              studentId: student.id,
+              studentName: student.full_name,
+              billingId: existingBilling.id,
+              status:
+                waStatus === "sent_whatsapp"
+                  ? "whatsapp_sent"
+                  : waStatus === "skipped_missing_whatsapp"
+                    ? "whatsapp_skipped_missing_recipient"
+                    : waStatus === "whatsapp_skipped_sandbox_boleto"
+                      ? "whatsapp_skipped_sandbox_boleto"
+                      : waStatus === "whatsapp_skipped_no_boleto"
+                        ? "whatsapp_skipped_no_boleto"
+                        : "whatsapp_skipped",
+            });
+          }
+          continue;
+        }
       }
 
       const taxId = getStudentTaxId(student.student_billing_profiles);
@@ -462,7 +495,7 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      let insertedBillingId: string | undefined;
+      let insertedBillingId: string | undefined = reprocessBillingId ?? undefined;
       let stage: BillingProcessStage = "ensure_customer";
       try {
         const customerId = await ensureAsaasCustomer(supabase, student, taxId, (next) => {
@@ -497,27 +530,45 @@ Deno.serve(async (req) => {
         }
 
         stage = "insert_local_billing";
-        const { data: insertedBilling, error: billingInsertError } = await supabase
-          .from("billings")
-          .insert({
-            academy_id: student.academy_id,
-            student_id: student.id,
-            plan_id: plan.id,
-            reference_month: period.referenceMonth,
-            amount: planAmount,
-            issue_date: issueDate,
-            due_date: dueDate,
-            status: sendWhatsApp ? "gerado" : "pendente",
-            asaas_payment_id: payment.id,
-            boleto_url: payment.boletoUrl,
-            invoice_number: payment.invoiceNumber,
-          })
-          .select("id, boleto_url")
-          .single();
+        const billingPayload = {
+          academy_id: student.academy_id,
+          student_id: student.id,
+          plan_id: plan.id,
+          reference_month: period.referenceMonth,
+          amount: planAmount,
+          issue_date: issueDate,
+          due_date: dueDate,
+          status: sendWhatsApp ? "gerado" : "pendente",
+          asaas_payment_id: payment.id,
+          boleto_url: payment.boletoUrl,
+          invoice_number: payment.invoiceNumber,
+          last_error: null as string | null,
+        };
 
-        if (billingInsertError || !insertedBilling) {
-          throw new Error(billingInsertError?.message ?? "insert failed");
+        let insertedBilling: { id: string; boleto_url: string | null } | null = null;
+        if (reprocessBillingId) {
+          const { data, error: billingUpdateError } = await supabase
+            .from("billings")
+            .update(billingPayload)
+            .eq("id", reprocessBillingId)
+            .select("id, boleto_url")
+            .single();
+          if (billingUpdateError || !data) {
+            throw new Error(billingUpdateError?.message ?? "update failed");
+          }
+          insertedBilling = data;
+        } else {
+          const { data, error: billingInsertError } = await supabase
+            .from("billings")
+            .insert(billingPayload)
+            .select("id, boleto_url")
+            .single();
+          if (billingInsertError || !data) {
+            throw new Error(billingInsertError?.message ?? "insert failed");
+          }
+          insertedBilling = data;
         }
+
         insertedBillingId = insertedBilling.id;
 
         if (sendWhatsApp) {
@@ -552,6 +603,22 @@ Deno.serve(async (req) => {
               studentName: student.full_name,
               billingId: insertedBilling.id,
               status: "whatsapp_skipped_missing_recipient",
+            });
+          } else if (
+            waStatus === "whatsapp_skipped_no_boleto" ||
+            waStatus === "whatsapp_skipped_sandbox_boleto"
+          ) {
+            processed.push({
+              studentId: student.id,
+              studentName: student.full_name,
+              billingId: insertedBilling.id,
+              status: "generated",
+            });
+            processed.push({
+              studentId: student.id,
+              studentName: student.full_name,
+              billingId: insertedBilling.id,
+              status: waStatus,
             });
           } else {
             processed.push({

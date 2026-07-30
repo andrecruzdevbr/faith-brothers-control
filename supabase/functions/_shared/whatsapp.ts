@@ -9,6 +9,7 @@ import {
 export type WhatsAppMessageType =
   | "general"
   | "billing"
+  | "billing_overdue"
   | "attendance"
   | "otp"
   | "payment_confirmation";

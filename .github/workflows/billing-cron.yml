@@ -1,0 +1,68 @@
+# Agendamento real das cobranças Faith Brothers (GitHub Actions).
+#
+# Secrets do repositório:
+#   SUPABASE_FUNCTIONS_BASE_URL  → https://wojqjxtaqjasnfhbotxi.supabase.co/functions/v1
+#   BILLING_CRON_SECRET          → mesmo valor do secret Supabase
+#
+# - Dia 10 08:00 BRT → generate-monthly-billings (boleto + WhatsApp)
+# - Dia 18 08:00 BRT → send-billing-whatsapp scope=overdue_reminder
+# - workflow_dispatch permite teste manual sem esperar o dia
+
+name: Billing cron
+
+on:
+  schedule:
+    - cron: "0 11 10 * *"
+    - cron: "0 11 18 * *"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "generate | overdue"
+        required: true
+        default: "generate"
+        type: choice
+        options:
+          - generate
+          - overdue
+
+jobs:
+  billing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Edge Function
+        env:
+          BASE_URL: ${{ secrets.SUPABASE_FUNCTIONS_BASE_URL }}
+          CRON_SECRET: ${{ secrets.BILLING_CRON_SECRET }}
+          DISPATCH_JOB: ${{ github.event_name == 'workflow_dispatch' && inputs.job || '' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "Configure secrets SUPABASE_FUNCTIONS_BASE_URL e BILLING_CRON_SECRET"
+            exit 1
+          fi
+
+          DAY=$(TZ=America/Sao_Paulo date +%d)
+          JOB="${DISPATCH_JOB}"
+          if [ -z "${JOB}" ]; then
+            if [ "${DAY}" = "10" ]; then
+              JOB="generate"
+            elif [ "${DAY}" = "18" ]; then
+              JOB="overdue"
+            else
+              echo "Agenda fora do dia 10/18 (hoje BR=${DAY}). Nada a fazer."
+              exit 0
+            fi
+          fi
+
+          echo "Job=${JOB} dayBR=${DAY}"
+          if [ "${JOB}" = "generate" ]; then
+            curl -fsS -X POST "${BASE_URL%/}/generate-monthly-billings" \
+              -H "Content-Type: application/json" \
+              -H "x-cron-secret: ${CRON_SECRET}" \
+              -d '{}'
+          else
+            curl -fsS -X POST "${BASE_URL%/}/send-billing-whatsapp" \
+              -H "Content-Type: application/json" \
+              -H "x-cron-secret: ${CRON_SECRET}" \
+              -d '{"scope":"overdue_reminder"}'
+          fi

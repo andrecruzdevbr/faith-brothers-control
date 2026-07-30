@@ -42,6 +42,23 @@ export function summarizeBillingRunText(summary: {
   ];
 }
 
+export function summarizeOverdueReminderText(params: {
+  overdueFound?: number;
+  summary?: {
+    whatsappSent: number;
+    whatsappSkipped: number;
+    errors: number;
+  };
+}): string[] {
+  const summary = params.summary;
+  return [
+    `Cobranças atrasadas encontradas: ${params.overdueFound ?? 0}`,
+    `Mensagens enviadas: ${summary?.whatsappSent ?? 0}`,
+    `Ignoradas: ${summary?.whatsappSkipped ?? 0}`,
+    `Erros: ${summary?.errors ?? 0}`,
+  ];
+}
+
 export function formatBillingErrorDetail(entry: BillingErrorDetail): string {
   const name = entry.studentName?.trim() || "Aluno";
   const stage = entry.stage ? `etapa ${entry.stage}` : "etapa desconhecida";
@@ -72,3 +89,11 @@ export {
   resolveDefaultBillingPeriod,
   type BillingPeriod,
 } from "../../supabase/functions/_shared/billing-settings.ts";
+
+export { isSandboxBoletoUrl, assertSendableBoletoUrl } from "../../supabase/functions/_shared/billing-boleto.ts";
+
+export {
+  isAfterOverdueReminderDay,
+  buildOverdueReminderMessage,
+  OVERDUE_REMINDER_AFTER_DAY,
+} from "../../supabase/functions/_shared/billing-overdue.ts";
