@@ -12,7 +12,8 @@ export type WhatsAppMessageType =
   | "billing_overdue"
   | "attendance"
   | "otp"
-  | "payment_confirmation";
+  | "payment_confirmation"
+  | "birthday";
 
 export interface QueueWhatsAppParams {
   supabase: SupabaseClient;

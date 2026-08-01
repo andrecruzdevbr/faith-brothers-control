@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Search, Plus, ChevronLeft, ChevronRight, Check, Loader2, Shield, Wallet, X } from "lucide-react";
+import { Search, Plus, ChevronLeft, ChevronRight, Check, Loader2, Shield, Wallet, X, Cake } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { StudentBillingTaxIdEditor } from "@/components/StudentBillingTaxIdEditor";
 import { StudentPlanEditor } from "@/components/StudentPlanEditor";
+import { StudentBirthEditor } from "@/components/StudentBirthEditor";
 import { supabase } from "@/integrations/supabase/client";
 import { useAcademyId, useStudents } from "@/hooks/useQueries";
 import { useAuth } from "@/contexts/AuthContext";
@@ -28,6 +29,7 @@ import {
   formatPendingPlanChangeLabel,
   formatPlanCurrentLabel,
 } from "@/lib/plans";
+import { formatAgeDisplay, formatBirthDateDisplay } from "@/lib/student-age";
 import type { Enums } from "@/integrations/supabase/types";
 
 type PendingPlanChangeRow = {
@@ -123,6 +125,12 @@ const Alunos = () => {
     id: string;
     name: string;
     planId: string | null;
+  } | null>(null);
+  const [birthStudent, setBirthStudent] = useState<{
+    id: string;
+    name: string;
+    birthDate: string | null;
+    guardianName: string | null;
   } | null>(null);
 
   useEffect(() => {
@@ -283,6 +291,7 @@ const Alunos = () => {
                 <tr className="border-b border-border bg-secondary/50">
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Aluno</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Faixa</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden xl:table-cell">Nascimento</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">Telefone</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden lg:table-cell">Plano atual</th>
                   {isStaff && (
@@ -325,7 +334,14 @@ const Alunos = () => {
                           <div className="w-9 h-9 rounded-full gradient-primary flex items-center justify-center text-xs font-bold text-primary-foreground">
                             {getInitials(aluno.full_name)}
                           </div>
-                          <span className="text-sm font-medium text-foreground">{aluno.full_name}</span>
+                          <div className="min-w-0">
+                            <span className="text-sm font-medium text-foreground block truncate">{aluno.full_name}</span>
+                            {aluno.guardian_name ? (
+                              <span className="text-xs text-muted-foreground block truncate">
+                                Resp.: {aluno.guardian_name}
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -334,6 +350,10 @@ const Alunos = () => {
                           <span className="text-sm text-foreground">{aluno.belt ?? "Branca"}</span>
                           {aluno.degrees > 0 && <span className="text-xs text-muted-foreground">{aluno.degrees}º</span>}
                         </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground hidden xl:table-cell">
+                        <div>{formatBirthDateDisplay(aluno.birth_date)}</div>
+                        <div className="text-xs">{formatAgeDisplay(aluno.birth_date)}</div>
                       </td>
                       <td className="px-4 py-3 text-sm text-muted-foreground hidden md:table-cell">{formatWhatsapp(aluno.whatsapp)}</td>
                       <td className="px-4 py-3 hidden lg:table-cell">
@@ -422,6 +442,22 @@ const Alunos = () => {
                                 </Button>
                               </>
                             ) : null}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 gap-1"
+                              onClick={() =>
+                                setBirthStudent({
+                                  id: aluno.id,
+                                  name: aluno.full_name,
+                                  birthDate: aluno.birth_date,
+                                  guardianName: aluno.guardian_name,
+                                })
+                              }
+                            >
+                              <Cake className="h-3 w-3" />
+                              {aluno.birth_date ? "Nascimento" : "Informar nascimento"}
+                            </Button>
                             <Button
                               size="sm"
                               variant="outline"
@@ -519,6 +555,26 @@ const Alunos = () => {
               onSaved={() => {
                 void invalidatePlanQueries();
                 setPlanStudent(null);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!birthStudent} onOpenChange={(open) => !open && setBirthStudent(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Nascimento / responsável — {birthStudent?.name}</DialogTitle>
+          </DialogHeader>
+          {birthStudent && (
+            <StudentBirthEditor
+              studentId={birthStudent.id}
+              studentName={birthStudent.name}
+              birthDate={birthStudent.birthDate}
+              guardianName={birthStudent.guardianName}
+              onSaved={() => {
+                void queryClient.invalidateQueries({ queryKey: ["students"] });
+                setBirthStudent(null);
               }}
             />
           )}

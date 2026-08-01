@@ -85,7 +85,7 @@ describe("register-student WhatsApp confirmation", () => {
     expect(label).not.toContain(billingTaxIdOnRegister);
   });
 
-  it("requires plan_id on public registration payload contract", () => {
+  it("requires plan_id and birth_date on public registration payload contract", () => {
     const payload = {
       full_name: "Aluno",
       whatsapp: "31999999999",
@@ -93,9 +93,13 @@ describe("register-student WhatsApp confirmation", () => {
       academy_id: "academy-1",
       billing_tax_id: "52998224725",
       plan_id: "plan-1",
+      birth_date: "2000-01-15",
+      guardian_name: null as string | null,
     };
     expect(payload.plan_id).toBeTruthy();
+    expect(payload.birth_date).toBeTruthy();
     expect(mapRegisterStudentRpcError("Selecione um plano desejado.").status).toBe(400);
+    expect(mapRegisterStudentRpcError("Informe a data de nascimento.").status).toBe(400);
   });
 
   it("does not break registration when WhatsApp queue fails", async () => {

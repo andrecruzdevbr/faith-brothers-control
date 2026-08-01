@@ -1,8 +1,9 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { getHomePath } from "@/lib/access";
 
 export function RoleHomeRedirect() {
-  const { isStaff, loading } = useAuth();
+  const { loading, roles } = useAuth();
   if (loading) return null;
-  return <Navigate to={isStaff ? "/dashboard" : "/minha-presenca"} replace />;
+  return <Navigate to={getHomePath(roles)} replace />;
 }

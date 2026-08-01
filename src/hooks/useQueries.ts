@@ -243,16 +243,26 @@ export function useRanking() {
   });
 }
 
-export function useAcademySettings() {
+export function useAcademySettings(options?: { basicOnly?: boolean }) {
   const { data: academyId } = useAcademyId();
+  const basicOnly = options?.basicOnly === true;
   return useQuery({
-    queryKey: ["academy-settings", academyId],
+    queryKey: ["academy-settings", academyId, basicOnly ? "basic" : "full"],
     enabled: !!academyId,
     queryFn: async () => {
-      const [{ data: academy }, { data: billing }] = await Promise.all([
+      // academy_limited: RPC segura (sem SELECT em public.academies / campos sensíveis)
+      if (basicOnly) {
+        const { data, error } = await supabase.rpc("get_my_academy_basic_info");
+        if (error) throw error;
+        const academy = Array.isArray(data) ? data[0] ?? null : data;
+        return { academy, billing: null };
+      }
+
+      const [{ data: academy, error: academyError }, { data: billing }] = await Promise.all([
         supabase.from("academies").select("*").eq("id", academyId!).single(),
         supabase.from("academy_billing_settings").select("*").eq("academy_id", academyId!).maybeSingle(),
       ]);
+      if (academyError) throw academyError;
       return { academy, billing };
     },
   });

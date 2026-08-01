@@ -22,6 +22,9 @@ verify_jwt = false
 [functions.register-student]
 verify_jwt = false
 
+[functions.send-birthday-whatsapp]
+verify_jwt = false
+
 [functions.whatsapp-status]
 verify_jwt = true
 

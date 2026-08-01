@@ -41,8 +41,10 @@ describe("whatsapp-auth", () => {
 
 describe("RBAC constants", () => {
   it("admin-only paths are defined", async () => {
-    const { ADMIN_ONLY_PATHS } = await import("@/lib/constants");
+    const { ADMIN_ONLY_PATHS, ACADEMY_LIMITED_PATHS } = await import("@/lib/constants");
     expect(ADMIN_ONLY_PATHS).toContain("/financeiro");
     expect(ADMIN_ONLY_PATHS).toContain("/configuracoes");
+    expect(ACADEMY_LIMITED_PATHS).toContain("/turmas");
+    expect(ACADEMY_LIMITED_PATHS).not.toContain("/financeiro");
   });
 });

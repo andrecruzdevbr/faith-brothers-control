@@ -1,14 +1,21 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { getHomePath } from "@/lib/access";
 import type { AppRole } from "@/lib/constants";
 
 interface ProtectedRouteProps {
-  /** admin = only admin role; staff = admin or professor; aluno = student only */
-  access?: "admin" | "staff" | "aluno";
+  /**
+   * admin = somente admin
+   * staff = admin ou professor (não academy_limited)
+   * ops = staff ou academy_limited (turmas/presenças/graduação/ranking)
+   * settings = admin ou academy_limited (config básica)
+   * aluno = somente aluno
+   */
+  access?: "admin" | "staff" | "ops" | "settings" | "aluno";
 }
 
 export function ProtectedRoute({ access }: ProtectedRouteProps) {
-  const { isAuthenticated, loading, isAdmin, isStaff, isAluno } = useAuth();
+  const { isAuthenticated, loading, isAdmin, isStaff, isAluno, isAcademyLimited, roles } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -25,16 +32,26 @@ export function ProtectedRoute({ access }: ProtectedRouteProps) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
+  const home = getHomePath(roles);
+
   if (access === "admin" && !isAdmin) {
-    return <Navigate to={isStaff ? "/dashboard" : "/minha-presenca"} replace />;
+    return <Navigate to={home} replace />;
   }
 
   if (access === "staff" && !isStaff) {
-    return <Navigate to="/minha-presenca" replace />;
+    return <Navigate to={home} replace />;
+  }
+
+  if (access === "ops" && !(isStaff || isAcademyLimited)) {
+    return <Navigate to={home} replace />;
+  }
+
+  if (access === "settings" && !(isAdmin || isAcademyLimited)) {
+    return <Navigate to={home} replace />;
   }
 
   if (access === "aluno" && !isAluno) {
-    return <Navigate to={isAdmin ? "/dashboard" : isStaff ? "/dashboard" : "/minha-presenca"} replace />;
+    return <Navigate to={home} replace />;
   }
 
   return <Outlet />;

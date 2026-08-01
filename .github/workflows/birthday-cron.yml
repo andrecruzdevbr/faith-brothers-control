@@ -1,0 +1,38 @@
+# Aniversários Faith Brothers — WhatsApp diário (GitHub Actions).
+#
+# Secrets do repositório (já usados no billing-cron):
+#   SUPABASE_FUNCTIONS_BASE_URL  → https://<ref>.supabase.co/functions/v1
+#   BILLING_CRON_SECRET          → mesmo valor do secret Supabase (x-cron-secret)
+#
+# Agenda: ~08:00 America/Sao_Paulo = 11:00 UTC (sem horário de verão BR).
+# workflow_dispatch permite teste manual.
+
+name: Birthday cron
+
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+
+jobs:
+  birthday:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call send-birthday-whatsapp
+        env:
+          BASE_URL: ${{ secrets.SUPABASE_FUNCTIONS_BASE_URL }}
+          CRON_SECRET: ${{ secrets.BILLING_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "Configure secrets SUPABASE_FUNCTIONS_BASE_URL e BILLING_CRON_SECRET"
+            exit 1
+          fi
+
+          DAY_BR=$(TZ=America/Sao_Paulo date +%Y-%m-%d)
+          echo "Birthday cron dateBR=${DAY_BR}"
+
+          curl -fsS -X POST "${BASE_URL%/}/send-birthday-whatsapp" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: ${CRON_SECRET}" \
+            -d '{}'

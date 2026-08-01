@@ -40,5 +40,22 @@ export function mapRegisterStudentRpcError(message: string): { status: number; e
     };
   }
 
+  if (lower.includes("data de nascimento")) {
+    if (lower.includes("futura")) {
+      return { status: 400, error: "A data de nascimento não pode ser futura." };
+    }
+    if (lower.includes("confira")) {
+      return { status: 400, error: "Confira a data de nascimento informada." };
+    }
+    return { status: 400, error: "Informe a data de nascimento." };
+  }
+
+  if (lower.includes("responsável") && lower.includes("menor")) {
+    return {
+      status: 400,
+      error: "Informe o nome do responsável para alunos menores de idade.",
+    };
+  }
+
   return { status: 500, error: sanitizeBillingError(message) };
 }

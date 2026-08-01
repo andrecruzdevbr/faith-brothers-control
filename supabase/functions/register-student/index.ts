@@ -5,6 +5,7 @@ import { isValidTaxId, normalizeTaxId } from "../_shared/tax-id.ts";
 import { mapRegisterStudentRpcError } from "../_shared/register-errors.ts";
 import { dispatchRegistrationWhatsApp } from "../_shared/registration-whatsapp.ts";
 import { logSafeError, sanitizeLogError } from "../_shared/sanitize-log.ts";
+import { validateStudentBirthFields } from "../_shared/student-age.ts";
 
 type RegisterBody = {
   full_name?: string;
@@ -14,6 +15,8 @@ type RegisterBody = {
   belt?: string;
   billing_tax_id?: string;
   plan_id?: string;
+  birth_date?: string;
+  guardian_name?: string;
 };
 
 type RegistrationState = "available" | "complete" | "partial";
@@ -89,6 +92,8 @@ Deno.serve(async (req) => {
     const belt = String(body.belt ?? "Branca").trim() || "Branca";
     const billingTaxId = normalizeTaxId(String(body.billing_tax_id ?? ""));
     const planId = String(body.plan_id ?? "").trim();
+    const birthDate = String(body.birth_date ?? "").trim();
+    const guardianName = String(body.guardian_name ?? "").trim();
 
     if (!/^\d{11}$/.test(whatsapp)) {
       return new Response(
@@ -102,6 +107,14 @@ Deno.serve(async (req) => {
         status: 400,
         headers,
       });
+    }
+
+    const birthError = validateStudentBirthFields({
+      birthDate,
+      guardianName,
+    });
+    if (birthError) {
+      return new Response(JSON.stringify({ error: birthError }), { status: 400, headers });
     }
 
     if (password.length < 8) {
@@ -232,6 +245,8 @@ Deno.serve(async (req) => {
           _belt: belt,
           _tax_id: billingTaxId,
           _plan_id: planId,
+          _birth_date: birthDate,
+          _guardian_name: guardianName || null,
         },
       );
 

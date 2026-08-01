@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAcademySettings, useAcademyId } from "@/hooks/useQueries";
 import { callEdgeFunction, formatDateBR } from "@/lib/api";
 import { formatWhatsapp } from "@/lib/whatsapp-auth";
+import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 
 type WhatsAppMessage = {
@@ -59,7 +60,9 @@ const ConfiguracoesSkeleton = () => (
 
 const Configuracoes = () => {
   const { toast } = useToast();
-  const { data: settings, isLoading, isError, error } = useAcademySettings();
+  const { isAdmin, isAcademyLimited } = useAuth();
+  const basicOnly = isAcademyLimited && !isAdmin;
+  const { data: settings, isLoading, isError, error } = useAcademySettings({ basicOnly });
   const { data: academyId } = useAcademyId();
 
   const [testNumber, setTestNumber] = useState("");
@@ -71,7 +74,7 @@ const Configuracoes = () => {
     isLoading: messagesLoading,
   } = useQuery({
     queryKey: ["whatsapp-messages", academyId],
-    enabled: !!academyId,
+    enabled: !!academyId && !basicOnly,
     queryFn: async () => {
       const { data, error: queryError } = await supabase
         .from("whatsapp_messages")
@@ -146,7 +149,9 @@ const Configuracoes = () => {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl md:text-3xl font-display font-bold tracking-wider">CONFIGURAÇÕES</h1>
-        <p className="text-sm text-muted-foreground mt-1">Dados da academia e integrações</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          {basicOnly ? "Dados básicos da academia" : "Dados da academia e integrações"}
+        </p>
       </div>
 
       <motion.div
@@ -158,7 +163,7 @@ const Configuracoes = () => {
           <SettingsIcon className="h-6 w-6 text-primary" />
           <h3 className="font-display text-lg font-bold tracking-wider">DADOS DA ACADEMIA</h3>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+        <div className={`grid grid-cols-1 ${basicOnly ? "" : "md:grid-cols-2"} gap-6 text-sm`}>
           <div className="space-y-3">
             <div>
               <span className="text-muted-foreground">Nome:</span>{" "}
@@ -179,187 +184,193 @@ const Configuracoes = () => {
                 </span>
               </div>
             )}
-            {academy?.finance_whatsapp && (
+            {!basicOnly && academy?.finance_whatsapp && (
               <div>
                 <span className="text-muted-foreground">WhatsApp financeiro:</span>{" "}
                 <span className="text-foreground font-medium">{formatWhatsapp(academy.finance_whatsapp)}</span>
               </div>
             )}
-            {academy?.finance_contact_name && (
+            {!basicOnly && academy?.finance_contact_name && (
               <div>
                 <span className="text-muted-foreground">Contato financeiro:</span>{" "}
                 <span className="text-foreground font-medium">{academy.finance_contact_name}</span>
               </div>
             )}
-            {academy?.finance_document_display && (
+            {!basicOnly && academy?.finance_document_display && (
               <div>
                 <span className="text-muted-foreground">CNPJ/MEI:</span>{" "}
                 <span className="text-foreground font-medium">{academy.finance_document_display}</span>
               </div>
             )}
           </div>
-          <div className="space-y-3">
-            {billing?.boleto_due_day != null && (
+          {!basicOnly && (
+            <div className="space-y-3">
+              {billing?.boleto_due_day != null && (
+                <div>
+                  <span className="text-muted-foreground">Vencimento padrão:</span>{" "}
+                  <span className="text-foreground font-medium">Dia {billing.boleto_due_day}</span>
+                </div>
+              )}
+              {billing?.boleto_issue_day != null && (
+                <div>
+                  <span className="text-muted-foreground">Emissão de cobrança:</span>{" "}
+                  <span className="text-foreground font-medium">Dia {billing.boleto_issue_day}</span>
+                </div>
+              )}
+              {billing?.send_whatsapp_automatically != null && (
+                <div>
+                  <span className="text-muted-foreground">Cobrança via WhatsApp:</span>{" "}
+                  <span className="text-foreground font-medium">
+                    {billing.send_whatsapp_automatically ? "Automática" : "Manual"}
+                  </span>
+                </div>
+              )}
+              {academy?.bank_name && (
+                <div>
+                  <span className="text-muted-foreground">Banco:</span>{" "}
+                  <span className="text-foreground font-medium">
+                    {academy.bank_name}
+                    {academy.bank_code ? ` (${academy.bank_code})` : ""}
+                  </span>
+                </div>
+              )}
+              {(academy?.bank_branch || academy?.bank_account) && (
+                <div>
+                  <span className="text-muted-foreground">Conta:</span>{" "}
+                  <span className="text-foreground font-medium">
+                    {academy.bank_branch ? `Ag ${academy.bank_branch}` : ""}
+                    {academy.bank_branch && academy.bank_account ? " • " : ""}
+                    {academy.bank_account ? `Cc ${academy.bank_account}` : ""}
+                  </span>
+                </div>
+              )}
               <div>
-                <span className="text-muted-foreground">Vencimento padrão:</span>{" "}
-                <span className="text-foreground font-medium">Dia {billing.boleto_due_day}</span>
+                <span className="text-muted-foreground">Repasse bancário:</span>{" "}
+                <span className="text-foreground font-medium">Manual pelo painel Asaas</span>
               </div>
-            )}
-            {billing?.boleto_issue_day != null && (
-              <div>
-                <span className="text-muted-foreground">Emissão de cobrança:</span>{" "}
-                <span className="text-foreground font-medium">Dia {billing.boleto_issue_day}</span>
-              </div>
-            )}
-            {billing?.send_whatsapp_automatically != null && (
-              <div>
-                <span className="text-muted-foreground">Cobrança via WhatsApp:</span>{" "}
-                <span className="text-foreground font-medium">
-                  {billing.send_whatsapp_automatically ? "Automática" : "Manual"}
-                </span>
-              </div>
-            )}
-            {academy?.bank_name && (
-              <div>
-                <span className="text-muted-foreground">Banco:</span>{" "}
-                <span className="text-foreground font-medium">
-                  {academy.bank_name}
-                  {academy.bank_code ? ` (${academy.bank_code})` : ""}
-                </span>
-              </div>
-            )}
-            {(academy?.bank_branch || academy?.bank_account) && (
-              <div>
-                <span className="text-muted-foreground">Conta:</span>{" "}
-                <span className="text-foreground font-medium">
-                  {academy.bank_branch ? `Ag ${academy.bank_branch}` : ""}
-                  {academy.bank_branch && academy.bank_account ? " • " : ""}
-                  {academy.bank_account ? `Cc ${academy.bank_account}` : ""}
-                </span>
-              </div>
-            )}
-            <div>
-              <span className="text-muted-foreground">Repasse bancário:</span>{" "}
-              <span className="text-foreground font-medium">Manual pelo painel Asaas</span>
             </div>
-          </div>
+          )}
         </div>
       </motion.div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="rounded-xl border border-border bg-card p-6 shadow-card"
-      >
-        <div className="flex items-center gap-3 mb-6">
-          <Send className="h-6 w-6 text-primary" />
-          <h3 className="font-display text-lg font-bold tracking-wider">TESTAR WHATSAPP</h3>
-        </div>
-        <p className="text-sm text-muted-foreground mb-4">
-          Envie uma mensagem de teste para validar a integração com a Evolution API.
-        </p>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <Input
-            placeholder="(DD) XXXXXXXXX"
-            inputMode="numeric"
-            value={testNumber}
-            onChange={(e) => setTestNumber(e.target.value.replace(/\D/g, ""))}
-            className="max-w-xs bg-background"
-          />
-          <Button onClick={handleTestWhatsApp} disabled={sending || !testNumber}>
-            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {sending ? "Enviando..." : "Testar WhatsApp"}
-          </Button>
-        </div>
-
-        {lastResult && (
-          <div
-            className={`mt-4 flex items-start gap-2 rounded-lg p-3 text-sm ${
-              lastResult.success
-                ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                : "bg-destructive/10 text-destructive border border-destructive/20"
-            }`}
+      {!basicOnly && (
+        <>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="rounded-xl border border-border bg-card p-6 shadow-card"
           >
-            {lastResult.success ? (
-              <CheckCircle className="h-5 w-5 shrink-0 mt-0.5" />
-            ) : (
-              <XCircle className="h-5 w-5 shrink-0 mt-0.5" />
-            )}
-            <div>
-              <p className="font-medium">{lastResult.success ? "Sucesso!" : "Falha no envio"}</p>
-              <p className="text-xs mt-0.5 opacity-80">{lastResult.details}</p>
+            <div className="flex items-center gap-3 mb-6">
+              <Send className="h-6 w-6 text-primary" />
+              <h3 className="font-display text-lg font-bold tracking-wider">TESTAR WHATSAPP</h3>
             </div>
-          </div>
-        )}
-      </motion.div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Envie uma mensagem de teste para validar a integração com a Evolution API.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Input
+                placeholder="(DD) XXXXXXXXX"
+                inputMode="numeric"
+                value={testNumber}
+                onChange={(e) => setTestNumber(e.target.value.replace(/\D/g, ""))}
+                className="max-w-xs bg-background"
+              />
+              <Button onClick={handleTestWhatsApp} disabled={sending || !testNumber}>
+                {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {sending ? "Enviando..." : "Testar WhatsApp"}
+              </Button>
+            </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="rounded-xl border border-border bg-card shadow-card overflow-hidden"
-      >
-        <div className="p-5 border-b border-border flex items-center gap-3">
-          <MessageSquare className="h-5 w-5 text-primary" />
-          <h3 className="font-display text-lg font-bold tracking-wider">HISTÓRICO DE MENSAGENS</h3>
-        </div>
+            {lastResult && (
+              <div
+                className={`mt-4 flex items-start gap-2 rounded-lg p-3 text-sm ${
+                  lastResult.success
+                    ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                    : "bg-destructive/10 text-destructive border border-destructive/20"
+                }`}
+              >
+                {lastResult.success ? (
+                  <CheckCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                ) : (
+                  <XCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <p className="font-medium">{lastResult.success ? "Sucesso!" : "Falha no envio"}</p>
+                  <p className="text-xs mt-0.5 opacity-80">{lastResult.details}</p>
+                </div>
+              </div>
+            )}
+          </motion.div>
 
-        {messagesLoading ? (
-          <div className="p-5 space-y-3">
-            {[1, 2, 3, 4].map((i) => (
-              <Skeleton key={i} className="h-16 rounded-lg" />
-            ))}
-          </div>
-        ) : !messages?.length ? (
-          <p className="p-8 text-sm text-muted-foreground text-center">Nenhuma mensagem registrada.</p>
-        ) : (
-          <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
-            <table className="w-full">
-              <thead className="sticky top-0 bg-secondary/80 backdrop-blur-sm">
-                <tr className="border-b border-border">
-                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Destinatário
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">
-                    Tipo
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden lg:table-cell">
-                    Data
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {messages.map((msg) => (
-                  <tr key={msg.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
-                    <td className="px-4 py-3">
-                      <p className="text-sm font-medium text-foreground">{formatWhatsapp(msg.recipient)}</p>
-                      <p className="text-xs text-muted-foreground truncate max-w-[200px] md:max-w-xs">{msg.body}</p>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground hidden md:table-cell">
-                      {msg.message_type}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={STATUS_VARIANT[msg.status] ?? "outline"}>
-                        {STATUS_LABELS[msg.status] ?? msg.status}
-                      </Badge>
-                      {msg.error_message && (
-                        <p className="text-xs text-destructive mt-1 truncate max-w-[120px]">{msg.error_message}</p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground hidden lg:table-cell">
-                      {formatDateBR(msg.sent_at ?? msg.created_at)}
-                    </td>
-                  </tr>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="rounded-xl border border-border bg-card shadow-card overflow-hidden"
+          >
+            <div className="p-5 border-b border-border flex items-center gap-3">
+              <MessageSquare className="h-5 w-5 text-primary" />
+              <h3 className="font-display text-lg font-bold tracking-wider">HISTÓRICO DE MENSAGENS</h3>
+            </div>
+
+            {messagesLoading ? (
+              <div className="p-5 space-y-3">
+                {[1, 2, 3, 4].map((i) => (
+                  <Skeleton key={i} className="h-16 rounded-lg" />
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </motion.div>
+              </div>
+            ) : !messages?.length ? (
+              <p className="p-8 text-sm text-muted-foreground text-center">Nenhuma mensagem registrada.</p>
+            ) : (
+              <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
+                <table className="w-full">
+                  <thead className="sticky top-0 bg-secondary/80 backdrop-blur-sm">
+                    <tr className="border-b border-border">
+                      <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                        Destinatário
+                      </th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">
+                        Tipo
+                      </th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden lg:table-cell">
+                        Data
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {messages.map((msg) => (
+                      <tr key={msg.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
+                        <td className="px-4 py-3">
+                          <p className="text-sm font-medium text-foreground">{formatWhatsapp(msg.recipient)}</p>
+                          <p className="text-xs text-muted-foreground truncate max-w-[200px] md:max-w-xs">{msg.body}</p>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground hidden md:table-cell">
+                          {msg.message_type}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={STATUS_VARIANT[msg.status] ?? "outline"}>
+                            {STATUS_LABELS[msg.status] ?? msg.status}
+                          </Badge>
+                          {msg.error_message && (
+                            <p className="text-xs text-destructive mt-1 truncate max-w-[120px]">{msg.error_message}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground hidden lg:table-cell">
+                          {formatDateBR(msg.sent_at ?? msg.created_at)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </motion.div>
+        </>
+      )}
     </div>
   );
 };

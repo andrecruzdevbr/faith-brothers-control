@@ -26,6 +26,14 @@ const adminOnlyMenuItems = [
   { title: "Configurações", url: "/configuracoes", icon: Settings },
 ];
 
+const academyLimitedMenuItems = [
+  { title: "Turmas", url: "/turmas", icon: CalendarDays },
+  { title: "Presenças", url: "/presencas", icon: ClipboardCheck },
+  { title: "Graduação", url: "/graduacao", icon: Award },
+  { title: "Ranking", url: "/ranking", icon: Trophy },
+  { title: "Configurações", url: "/configuracoes", icon: Settings },
+];
+
 const alunoMenuItems = [
   { title: "Minhas Presenças", url: "/minha-presenca", icon: ClipboardCheck },
   { title: "Minha Graduação", url: "/minha-graduacao", icon: Award },
@@ -38,11 +46,15 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
-  const { isStaff, isAdmin } = useAuth();
+  const { isStaff, isAdmin, isAcademyLimited, isPanelUser } = useAuth();
 
-  const menuItems = isStaff
-    ? [...staffMenuItems, ...(isAdmin ? adminOnlyMenuItems : [])]
-    : alunoMenuItems;
+  const menuItems = isAcademyLimited
+    ? academyLimitedMenuItems
+    : isStaff
+      ? [...staffMenuItems, ...(isAdmin ? adminOnlyMenuItems : [])]
+      : isPanelUser
+        ? academyLimitedMenuItems
+        : alunoMenuItems;
 
   return (
     <Sidebar collapsible="icon">

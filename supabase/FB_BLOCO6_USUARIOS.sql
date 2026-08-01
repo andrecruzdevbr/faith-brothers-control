@@ -8,7 +8,7 @@ INSERT INTO public.academies (id, name, slug, city, state, address, finance_cont
 VALUES (
   '00000000-0000-0000-0000-000000000001',
   'Faith Brothers BJJ', 'faith-brothers', 'Ouro Branco', 'MG',
-  'Av. Patriótica N 210', 'Ramon Pereira de São José', '31987540515',
+  'Avenida Mariza de souza Mendes, 71a', 'Ramon Pereira de São José', '31987540515',
   'Banco do Brasil', '001', '2372-8', '42762-4'
 )
 ON CONFLICT (slug) DO UPDATE SET
@@ -78,10 +78,13 @@ END;
 $$;
 
 SELECT internal._dev_seed_user('31987540515', 'Ramon', 'faithbrothers2026', ARRAY['admin','professor']::public.app_role[]);
-SELECT internal._dev_seed_user('31998565661', 'Herbert', 'faithbrothers2026', ARRAY['admin','professor']::public.app_role[]);
+-- Herbert e Lanes: desativados em produção (migration 20260731200100). Não recriar com admin.
+-- SELECT internal._dev_seed_user('31998565661', 'Herbert', 'faithbrothers2026', ARRAY['admin','professor']::public.app_role[]);
 SELECT internal._dev_seed_user('31997586456', 'Warlen', 'faithbrothers2026', ARRAY['admin','professor']::public.app_role[]);
 SELECT internal._dev_seed_user('31981044156', 'André', 'faithbrothers2026', ARRAY['admin','professor']::public.app_role[]);
-SELECT internal._dev_seed_user('31987438874', 'Lanes', 'faithbrothers2026', ARRAY['admin','professor']::public.app_role[]);
+-- SELECT internal._dev_seed_user('31987438874', 'Lanes', 'faithbrothers2026', ARRAY['admin','professor']::public.app_role[]);
+-- WhatsApp da academia (acesso limitado)
+SELECT internal._dev_seed_user('31985010010', 'Academia Faith Brothers', 'faithbrothers2026', ARRAY['academy_limited']::public.app_role[]);
 
 -- Aluno teste
 SELECT internal._dev_seed_user('31999999999', 'Aluno Teste', '123456', ARRAY['aluno']::public.app_role[]);

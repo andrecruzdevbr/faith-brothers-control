@@ -3,6 +3,14 @@ import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { Enums, Tables } from "@/integrations/supabase/types";
 import type { AppRole } from "@/lib/constants";
+import {
+  isAcademyLimitedRole,
+  isAdminRole,
+  isAlunoRole,
+  isPanelUserRole,
+  isProfessorRole,
+  isStaffRole,
+} from "@/lib/access";
 import { getLoginCredentials } from "@/lib/whatsapp-auth";
 
 type Profile = Tables<"profiles">;
@@ -26,7 +34,9 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   isProfessor: boolean;
+  isAcademyLimited: boolean;
   isStaff: boolean;
+  isPanelUser: boolean;
   isAluno: boolean;
   signOut: () => Promise<void>;
   signInWithWhatsapp: (whatsapp: string, password: string) => Promise<void>;
@@ -48,7 +58,9 @@ const AuthContext = createContext<AuthContextType>({
   isAuthenticated: false,
   isAdmin: false,
   isProfessor: false,
+  isAcademyLimited: false,
   isStaff: false,
+  isPanelUser: false,
   isAluno: false,
   signOut: async () => {},
   signInWithWhatsapp: async () => {},
@@ -164,10 +176,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [applySession, refreshUser]);
 
   const value = useMemo<AuthContextType>(() => {
-    const isAdmin = roles.includes("admin");
-    const isProfessor = roles.includes("professor");
-    const isStaff = isAdmin || isProfessor;
-    const isAluno = roles.includes("aluno") && !isStaff;
+    const isAdmin = isAdminRole(roles);
+    const isProfessor = isProfessorRole(roles);
+    const isAcademyLimited = isAcademyLimitedRole(roles);
+    const isStaff = isStaffRole(roles);
+    const isPanelUser = isPanelUserRole(roles);
+    const isAluno = isAlunoRole(roles);
 
     return {
       user,
@@ -178,7 +192,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: !!session?.user && roles.length > 0,
       isAdmin,
       isProfessor,
+      isAcademyLimited,
       isStaff,
+      isPanelUser,
       isAluno,
       signOut: async () => { await supabase.auth.signOut(); },
       signInWithWhatsapp,

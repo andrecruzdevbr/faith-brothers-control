@@ -12,9 +12,11 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { callEdgeFunction } from "@/lib/api";
+import { getHomePath } from "@/lib/access";
 import { isValidBrazilianWhatsapp, normalizeWhatsapp } from "@/lib/whatsapp-auth";
 import { isValidTaxId, normalizeTaxId } from "@/lib/tax-id";
 import { formatPlanOptionLabel, type PlanOption } from "@/lib/plans";
+import { isMinor, validateStudentBirthFields } from "@/lib/student-age";
 
 const BELTS = [
   "Branca",
@@ -38,6 +40,8 @@ const signupSchema = z
       .refine((value) => isValidBrazilianWhatsapp(value), {
         message: "Informe um WhatsApp com 11 dígitos (DDD + número)",
       }),
+    birthDate: z.string().min(1, "Informe a data de nascimento."),
+    guardianName: z.string().trim().max(120).optional().or(z.literal("")),
     academyId: z.string().uuid("Selecione uma academia"),
     planId: z.string().uuid("Selecione o plano desejado"),
     billingTaxId: z
@@ -51,6 +55,19 @@ const signupSchema = z
     password: z.string().min(8, "A senha precisa ter pelo menos 8 caracteres").max(100),
     confirmPassword: z.string().min(8).max(100),
   })
+  .superRefine((data, ctx) => {
+    const birthError = validateStudentBirthFields({
+      birthDate: data.birthDate,
+      guardianName: data.guardianName,
+    });
+    if (birthError) {
+      if (birthError.includes("responsável")) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: birthError, path: ["guardianName"] });
+      } else {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: birthError, path: ["birthDate"] });
+      }
+    }
+  })
   .refine((data) => data.password === data.confirmPassword, {
     path: ["confirmPassword"],
     message: "As senhas não conferem",
@@ -62,7 +79,7 @@ type AcademyOption = { id: string; name: string; slug: string };
 const Cadastro = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { isAuthenticated, loading, isStaff } = useAuth();
+  const { isAuthenticated, loading, roles } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const [academies, setAcademies] = useState<AcademyOption[]>([]);
   const [loadingAcademies, setLoadingAcademies] = useState(true);
@@ -74,6 +91,8 @@ const Cadastro = () => {
     defaultValues: {
       fullName: "",
       whatsapp: "",
+      birthDate: "",
+      guardianName: "",
       academyId: "",
       planId: "",
       billingTaxId: "",
@@ -84,6 +103,8 @@ const Cadastro = () => {
   });
 
   const selectedAcademyId = form.watch("academyId");
+  const birthDateWatch = form.watch("birthDate");
+  const showGuardianRequired = !!birthDateWatch && isMinor(birthDateWatch);
 
   useEffect(() => {
     const loadAcademies = async () => {
@@ -139,7 +160,7 @@ const Cadastro = () => {
   }, [selectedAcademyId, form, toast]);
 
   if (!loading && isAuthenticated) {
-    return <Navigate to={isStaff ? "/dashboard" : "/minha-presenca"} replace />;
+    return <Navigate to={getHomePath(roles)} replace />;
   }
 
   const handleWhatsappChange = (e: React.ChangeEvent<HTMLInputElement>, onChange: (v: string) => void) => {
@@ -162,6 +183,8 @@ const Cadastro = () => {
           belt: values.belt || "Branca",
           billing_tax_id: normalizeTaxId(values.billingTaxId),
           plan_id: values.planId,
+          birth_date: values.birthDate,
+          guardian_name: values.guardianName?.trim() || null,
         },
         { requireAuth: false },
       );
@@ -232,6 +255,44 @@ const Cadastro = () => {
                       />
                     </FormControl>
                     <p className="text-xs text-muted-foreground">11 dígitos com DDD, sem espaços</p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="birthDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Data de nascimento</FormLabel>
+                    <FormControl>
+                      <Input type="date" max={new Date().toISOString().slice(0, 10)} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="guardianName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Nome do responsável
+                      {showGuardianRequired ? " *" : " (se menor de idade)"}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder={
+                          showGuardianRequired
+                            ? "Obrigatório para menores de 18 anos"
+                            : "Opcional para maiores de idade"
+                        }
+                        {...field}
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

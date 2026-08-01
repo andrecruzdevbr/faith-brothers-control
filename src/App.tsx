@@ -65,11 +65,16 @@ const App = () => (
                 <Route element={<Layout />}>
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/alunos" element={<Alunos />} />
+                  <Route path="/relatorios" element={<Relatorios />} />
+                </Route>
+              </Route>
+
+              <Route element={<ProtectedRoute access="ops" />}>
+                <Route element={<Layout />}>
                   <Route path="/turmas" element={<Turmas />} />
                   <Route path="/presencas" element={<Presencas />} />
                   <Route path="/graduacao" element={<Graduacao />} />
                   <Route path="/ranking" element={<Ranking />} />
-                  <Route path="/relatorios" element={<Relatorios />} />
                 </Route>
               </Route>
 
@@ -77,6 +82,11 @@ const App = () => (
                 <Route element={<Layout />}>
                   <Route path="/financeiro" element={<Financeiro />} />
                   <Route path="/professores" element={<Professores />} />
+                </Route>
+              </Route>
+
+              <Route element={<ProtectedRoute access="settings" />}>
+                <Route element={<Layout />}>
                   <Route path="/configuracoes" element={<Configuracoes />} />
                 </Route>
               </Route>

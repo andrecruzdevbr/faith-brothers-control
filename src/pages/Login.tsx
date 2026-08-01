@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
+import { getHomePath } from "@/lib/access";
 import { isValidWhatsapp } from "@/lib/whatsapp-auth";
 
 const loginSchema = z.object({
@@ -27,7 +28,7 @@ const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
-  const { isAuthenticated, loading, isStaff, signInWithWhatsapp } = useAuth();
+  const { isAuthenticated, loading, roles, signInWithWhatsapp } = useAuth();
   const [submitting, setSubmitting] = useState(false);
 
   const form = useForm<LoginValues>({
@@ -36,7 +37,7 @@ const Login = () => {
   });
 
   if (!loading && isAuthenticated) {
-    return <Navigate to={isStaff ? "/dashboard" : "/minha-presenca"} replace />;
+    return <Navigate to={getHomePath(roles)} replace />;
   }
 
   const onSubmit = async (values: LoginValues) => {

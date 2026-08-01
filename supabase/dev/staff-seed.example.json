@@ -1,7 +1,6 @@
 [
   { "name": "Ramon", "whatsapp": "31987540515", "roles": ["admin", "professor"] },
-  { "name": "Herbert", "whatsapp": "31998565661", "roles": ["admin", "professor"] },
   { "name": "Warlen", "whatsapp": "31997586456", "roles": ["admin", "professor"] },
   { "name": "André", "whatsapp": "31981044156", "roles": ["admin", "professor"] },
-  { "name": "Lanes", "whatsapp": "31987438874", "roles": ["admin", "professor"] }
+  { "name": "Academia Faith Brothers", "whatsapp": "31985010010", "roles": ["academy_limited"] }
 ]

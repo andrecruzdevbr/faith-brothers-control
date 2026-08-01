@@ -391,6 +391,7 @@ export type Database = {
           email: string | null
           emergency_contact: string | null
           full_name: string
+          guardian_name: string | null
           id: string
           photo_url: string | null
           plan_id: string | null
@@ -410,6 +411,7 @@ export type Database = {
           email?: string | null
           emergency_contact?: string | null
           full_name: string
+          guardian_name?: string | null
           id?: string
           photo_url?: string | null
           plan_id?: string | null
@@ -429,6 +431,7 @@ export type Database = {
           email?: string | null
           emergency_contact?: string | null
           full_name?: string
+          guardian_name?: string | null
           id?: string
           photo_url?: string | null
           plan_id?: string | null
@@ -451,6 +454,67 @@ export type Database = {
             columns: ["plan_id"]
             isOneToOne: false
             referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      birthday_messages: {
+        Row: {
+          id: string
+          student_id: string
+          academy_id: string
+          birthday_year: number
+          message_id: string | null
+          status: string
+          sent_at: string | null
+          error_message: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          student_id: string
+          academy_id: string
+          birthday_year: number
+          message_id?: string | null
+          status?: string
+          sent_at?: string | null
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          student_id?: string
+          academy_id?: string
+          birthday_year?: number
+          message_id?: string | null
+          status?: string
+          sent_at?: string | null
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "birthday_messages_academy_id_fkey"
+            columns: ["academy_id"]
+            isOneToOne: false
+            referencedRelation: "academies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "birthday_messages_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "birthday_messages_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_messages"
             referencedColumns: ["id"]
           },
         ]
@@ -709,6 +773,19 @@ export type Database = {
       }
       get_billing_cron_secret: { Args: never; Returns: string }
       get_my_academy_id: { Args: never; Returns: string }
+      get_my_academy_basic_info: {
+        Args: never
+        Returns: {
+          id: string
+          name: string
+          slug: string
+          city: string | null
+          state: string | null
+          address: string | null
+        }[]
+      }
+      is_academy_limited_of: { Args: { _academy_id: string }; Returns: boolean }
+      can_operate_ops: { Args: { _academy_id: string }; Returns: boolean }
       get_public_academies: {
         Args: never
         Returns: {
@@ -789,7 +866,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "admin" | "aluno" | "professor"
+      app_role: "admin" | "aluno" | "professor" | "academy_limited"
       billing_status:
         | "pendente"
         | "gerado"
@@ -927,7 +1004,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "aluno", "professor"],
+      app_role: ["admin", "aluno", "professor", "academy_limited"],
       billing_status: [
         "pendente",
         "gerado",
