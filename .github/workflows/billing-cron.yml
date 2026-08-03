@@ -5,7 +5,9 @@
 #   BILLING_CRON_SECRET          → mesmo valor do secret Supabase
 #
 # - Dia 10 08:00 BRT → generate-monthly-billings (boleto + WhatsApp)
-# - Dia 18 08:00 BRT → send-billing-whatsapp scope=overdue_reminder
+# - Dia 19 08:00 BRT → send-billing-whatsapp scope=overdue_reminder
+#   (a regra exige data ESTRITAMENTE após o dia 18 do mês de vencimento;
+#    no dia 18 o job retornaria overdue_reminder_too_early para todos)
 # - workflow_dispatch permite teste manual sem esperar o dia
 
 name: Billing cron
@@ -13,7 +15,7 @@ name: Billing cron
 on:
   schedule:
     - cron: "0 11 10 * *"
-    - cron: "0 11 18 * *"
+    - cron: "0 11 19 * *"
   workflow_dispatch:
     inputs:
       job:
@@ -46,10 +48,10 @@ jobs:
           if [ -z "${JOB}" ]; then
             if [ "${DAY}" = "10" ]; then
               JOB="generate"
-            elif [ "${DAY}" = "18" ]; then
+            elif [ "${DAY}" = "19" ]; then
               JOB="overdue"
             else
-              echo "Agenda fora do dia 10/18 (hoje BR=${DAY}). Nada a fazer."
+              echo "Agenda fora do dia 10/19 (hoje BR=${DAY}). Nada a fazer."
               exit 0
             fi
           fi
