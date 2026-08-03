@@ -75,28 +75,51 @@ export async function sendViaEvolution(
   }
 
   const url = buildEvolutionSendTextUrl(config.baseUrl, config.instance);
-  const response = await fetchImpl(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: config.apiKey,
+  const number = toEvolutionNumber(recipient);
+  const payloads: Record<string, unknown>[] = [
+    { number, text },
+    { number, textMessage: { text } },
+    {
+      number,
+      options: { delay: 1200, presence: "composing", linkPreview: false },
+      textMessage: { text },
     },
-    body: JSON.stringify({
-      number: toEvolutionNumber(recipient),
-      text,
-    }),
-  });
+  ];
 
-  const data = await response.json().catch(() => null);
-  if (!response.ok) {
-    return {
-      ok: false,
-      error: `Evolution API [${response.status}]: send failed`,
-    };
+  let lastError = "send failed";
+  for (const body of payloads) {
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: config.apiKey,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      const externalId = data?.key?.id ?? data?.messageId ?? undefined;
+      return { ok: true, externalId };
+    }
+
+    const detail =
+      (typeof data?.message === "string" && data.message) ||
+      (typeof data?.error === "string" && data.error) ||
+      (typeof data?.response?.message === "string" && data.response.message) ||
+      (Array.isArray(data?.response?.message)
+        ? data.response.message.map((m: unknown) => String(m)).join("; ")
+        : null) ||
+      (data ? JSON.stringify(data).slice(0, 180) : "send failed");
+    lastError = `Evolution API [${response.status}]: ${String(detail).slice(0, 200)}`;
+
+    // Only fall through payload variants on 400; other statuses abort.
+    if (response.status !== 400) {
+      return { ok: false, error: lastError };
+    }
   }
 
-  const externalId = data?.key?.id ?? data?.messageId ?? undefined;
-  return { ok: true, externalId };
+  return { ok: false, error: lastError };
 }
 
 export async function queueWhatsApp(params: QueueWhatsAppParams): Promise<QueueWhatsAppResult> {

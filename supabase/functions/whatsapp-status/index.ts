@@ -59,14 +59,62 @@ Deno.serve(async (req) => {
           ? data.state
           : null;
 
+    let ownerDigits: string | null = null;
+    let instancesSummary: Array<{ name: string; state: string | null; ownerDigits: string | null }> = [];
+
+    try {
+      const fetchUrl = `${config.baseUrl.replace(/\/$/, "")}/instance/fetchInstances`;
+      const fetchResp = await fetch(fetchUrl, {
+        method: "GET",
+        headers: { apikey: config.apiKey },
+      });
+      const fetchData = await fetchResp.json().catch(() => null);
+      const list = Array.isArray(fetchData)
+        ? fetchData
+        : Array.isArray(fetchData?.instance)
+          ? fetchData.instance
+          : Array.isArray(fetchData?.data)
+            ? fetchData.data
+            : [];
+
+      for (const item of list) {
+        const name = String(item?.instanceName ?? item?.name ?? item?.instance?.instanceName ?? "");
+        const st = String(item?.status ?? item?.connectionStatus ?? item?.instance?.state ?? item?.state ?? "") || null;
+        const ownerRaw = String(
+          item?.ownerJid ??
+            item?.owner ??
+            item?.instance?.ownerJid ??
+            item?.instance?.owner ??
+            item?.number ??
+            "",
+        );
+        const digits = ownerRaw ? ownerRaw.replace(/\D/g, "").replace(/@.*/, "") : null;
+        if (name) {
+          instancesSummary.push({ name, state: st, ownerDigits: digits });
+        }
+        if (name === config.instance && digits) ownerDigits = digits;
+      }
+    } catch {
+      // optional enrichment
+    }
+
     return new Response(
       JSON.stringify({
         provider: config.provider,
         sendEnabled: config.sendEnabled,
         instance: config.instance,
         publicUrl: config.publicUrl,
+        baseUrlHost: (() => {
+          try {
+            return new URL(config.baseUrl).host;
+          } catch {
+            return null;
+          }
+        })(),
         state,
         connected: isEvolutionConnected(state),
+        ownerDigits,
+        instances: instancesSummary.slice(0, 10),
       }),
       { headers },
     );

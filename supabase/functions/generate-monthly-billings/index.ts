@@ -114,11 +114,19 @@ async function asaasRequest(path: string, init: RequestInit = {}) {
       ...(init.headers ?? {}),
     },
   });
-  const data = await response.json();
+  const raw = await response.text();
+  let data: unknown = {};
+  if (raw.trim()) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      throw new Error(`Asaas [${response.status}]: invalid JSON response`);
+    }
+  }
   if (!response.ok) {
     throw new Error(`Asaas [${response.status}]: ${JSON.stringify(data)}`);
   }
-  return data;
+  return data as Record<string, unknown>;
 }
 
 async function getAuthorizedAdminAcademyId(authHeader: string) {
@@ -152,15 +160,22 @@ async function ensureAsaasCustomer(
 
   if (student.asaas_customer_id) {
     setStage("update_asaas_customer");
-    const existing = await asaasRequest(`/customers/${student.asaas_customer_id}`);
-    const existingCpf = normalizeTaxId(String(existing.cpfCnpj ?? ""));
-    if (shouldUpdateAsaasCustomer(existingCpf, cpfCnpj)) {
-      await asaasRequest(`/customers/${student.asaas_customer_id}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      });
+    try {
+      const existing = await asaasRequest(`/customers/${student.asaas_customer_id}`);
+      const existingCpf = normalizeTaxId(String(existing.cpfCnpj ?? ""));
+      if (shouldUpdateAsaasCustomer(existingCpf, cpfCnpj)) {
+        await asaasRequest(`/customers/${student.asaas_customer_id}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+      }
+      return student.asaas_customer_id;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Customer órfão/sandbox: recria em vez de abortar a cobrança.
+      if (!message.includes("Asaas [404]")) throw error;
+      await supabase.from("students").update({ asaas_customer_id: null }).eq("id", student.id);
     }
-    return student.asaas_customer_id;
   }
 
   setStage("ensure_customer");

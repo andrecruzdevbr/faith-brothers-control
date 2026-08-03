@@ -226,7 +226,7 @@ Deno.serve(async (req) => {
       }
 
       if (
-        effectiveScope === "pending_month" &&
+        (effectiveScope === "pending_month" || effectiveScope === "single") &&
         !resend &&
         billing.status === "enviado_whatsapp" &&
         billing.whatsapp_sent_at

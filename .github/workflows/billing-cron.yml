@@ -19,11 +19,12 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "generate | overdue"
+        description: "generate | overdue | auth_check"
         required: true
-        default: "generate"
+        default: "auth_check"
         type: choice
         options:
+          - auth_check
           - generate
           - overdue
 
@@ -57,7 +58,13 @@ jobs:
           fi
 
           echo "Job=${JOB} dayBR=${DAY}"
-          if [ "${JOB}" = "generate" ]; then
+          if [ "${JOB}" = "auth_check" ]; then
+            # Valida x-cron-secret sem lote e sem WhatsApp; reutiliza billing de teste.
+            curl -fsS -X POST "${BASE_URL%/}/generate-monthly-billings" \
+              -H "Content-Type: application/json" \
+              -H "x-cron-secret: ${CRON_SECRET}" \
+              -d '{"force":true,"sendWhatsApp":false,"studentId":"ced46b69-4293-48dd-b04f-300bb835150f"}'
+          elif [ "${JOB}" = "generate" ]; then
             curl -fsS -X POST "${BASE_URL%/}/generate-monthly-billings" \
               -H "Content-Type: application/json" \
               -H "x-cron-secret: ${CRON_SECRET}" \
