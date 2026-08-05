@@ -43,7 +43,7 @@ export function isValidTaxId(raw: string): boolean {
 
 export function sanitizeBillingError(message: string): string {
   return message
-    .replace(/Bearer\s+[A-Za-z0-9._\-]+/gi, "Bearer [REDACTED]")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
     .replace(/access_token["\s:=]+[^"\s,}]+/gi, "access_token=[REDACTED]")
     .replace(/apikey["\s:=]+[^"\s,}]+/gi, "apikey=[REDACTED]")
     .replace(/service_role["\s:=]+[^"\s,}]+/gi, "service_role=[REDACTED]")

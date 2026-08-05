@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
           : null;
 
     let ownerDigits: string | null = null;
-    let instancesSummary: Array<{ name: string; state: string | null; ownerDigits: string | null }> = [];
+    const instancesSummary: Array<{ name: string; state: string | null; ownerDigits: string | null }> = [];
 
     try {
       const fetchUrl = `${config.baseUrl.replace(/\/$/, "")}/instance/fetchInstances`;

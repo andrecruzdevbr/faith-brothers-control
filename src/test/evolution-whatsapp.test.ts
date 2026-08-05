@@ -15,7 +15,7 @@ const LOCAL_ENV = {
   WHATSAPP_EVOLUTION_BASE_URL: "http://host.docker.internal:8085/",
   WHATSAPP_EVOLUTION_PUBLIC_URL: "http://localhost:8085",
   WHATSAPP_EVOLUTION_API_KEY: "change-me",
-  WHATSAPP_EVOLUTION_INSTANCE: "FaithBrothersControl",
+  WHATSAPP_EVOLUTION_INSTANCE: "FaithBrothersAcademia",
 };
 
 describe("parseEnvBoolean", () => {
@@ -41,7 +41,7 @@ describe("resolveEvolutionConfig", () => {
     expect(config.sendEnabled).toBe(false);
     expect(config.baseUrl).toBe("http://host.docker.internal:8085");
     expect(config.publicUrl).toBe("http://localhost:8085");
-    expect(config.instance).toBe("FaithBrothersControl");
+    expect(config.instance).toBe("FaithBrothersAcademia");
   });
 
   it("falls back to legacy EVOLUTION_* names", () => {
@@ -59,22 +59,22 @@ describe("resolveEvolutionConfig", () => {
 });
 
 describe("Evolution URL builders", () => {
-  it("builds sendText path for FaithBrothersControl", () => {
-    expect(buildEvolutionSendTextPath("FaithBrothersControl")).toBe(
-      "/message/sendText/FaithBrothersControl",
+  it("builds sendText path for FaithBrothersAcademia", () => {
+    expect(buildEvolutionSendTextPath("FaithBrothersAcademia")).toBe(
+      "/message/sendText/FaithBrothersAcademia",
     );
-    expect(buildEvolutionSendTextUrl("http://host.docker.internal:8085/", "FaithBrothersControl")).toBe(
-      "http://host.docker.internal:8085/message/sendText/FaithBrothersControl",
+    expect(buildEvolutionSendTextUrl("http://host.docker.internal:8085/", "FaithBrothersAcademia")).toBe(
+      "http://host.docker.internal:8085/message/sendText/FaithBrothersAcademia",
     );
   });
 
-  it("builds connectionState path for FaithBrothersControl", () => {
-    expect(buildEvolutionConnectionStatePath("FaithBrothersControl")).toBe(
-      "/instance/connectionState/FaithBrothersControl",
+  it("builds connectionState path for FaithBrothersAcademia", () => {
+    expect(buildEvolutionConnectionStatePath("FaithBrothersAcademia")).toBe(
+      "/instance/connectionState/FaithBrothersAcademia",
     );
     expect(
-      buildEvolutionConnectionStateUrl("http://host.docker.internal:8085", "FaithBrothersControl"),
-    ).toBe("http://host.docker.internal:8085/instance/connectionState/FaithBrothersControl");
+      buildEvolutionConnectionStateUrl("http://host.docker.internal:8085", "FaithBrothersAcademia"),
+    ).toBe("http://host.docker.internal:8085/instance/connectionState/FaithBrothersAcademia");
   });
 
   it("marks connected only when state is open", () => {
@@ -121,7 +121,7 @@ describe("WHATSAPP_SEND_ENABLED gate", () => {
     });
     const url = buildEvolutionSendTextUrl(config.baseUrl, config.instance);
     expect(url).toBe(
-      "http://host.docker.internal:8085/message/sendText/FaithBrothersControl",
+      "http://host.docker.internal:8085/message/sendText/FaithBrothersAcademia",
     );
     expect(url).not.toContain(config.apiKey);
     expect(JSON.stringify({ provider: config.provider, instance: config.instance })).not.toContain(
