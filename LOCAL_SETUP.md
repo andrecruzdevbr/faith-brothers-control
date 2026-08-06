@@ -161,13 +161,13 @@ WHATSAPP_SEND_ENABLED=false
 WHATSAPP_EVOLUTION_BASE_URL=http://host.docker.internal:8085
 WHATSAPP_EVOLUTION_PUBLIC_URL=http://localhost:8085
 WHATSAPP_EVOLUTION_API_KEY=<chave-local>
-WHATSAPP_EVOLUTION_INSTANCE=FaithBrothersControl
+WHATSAPP_EVOLUTION_INSTANCE=FaithBrothersAcademia
 ```
 
 Modo seguro: com `WHATSAPP_SEND_ENABLED=false` o sistema enfileira mensagens e consulta status, mas **não envia** WhatsApp real via Evolution.
 
 Instâncias Evolution:
-- **`FaithBrothersControl`** — instância final atual do Faith Brothers (usar esta).
+- **`FaithBrothersAcademia`** — instância oficial de produção do Faith Brothers (usar esta).
 - `faithbrothers-teste` — instância antiga (não usar).
 - `faithbrothers-teste-2` — instância temporária de diagnóstico (não usar).
 - **`agroraiz-teste`** — pertence ao AgroRaiz; **não mexer**.
@@ -177,9 +177,9 @@ URLs:
 - Cloud / secrets Supabase → VPS `http://2.24.108.128:8080` (`WHATSAPP_EVOLUTION_BASE_URL` / `PUBLIC_URL`)
 - Navegador / QR local → use `http://localhost:8085`
 - Conectar QR da instância Faith Brothers:
-  `GET http://localhost:8085/instance/connect/FaithBrothersControl`
+  `GET http://localhost:8085/instance/connect/FaithBrothersAcademia`
 - Status: Edge Function `whatsapp-status` (admin) ou
-  `GET .../instance/connectionState/FaithBrothersControl`
+  `GET .../instance/connectionState/FaithBrothersAcademia`
 
 Scripts:
 - Check VPS: `powershell -ExecutionPolicy Bypass -File .\scripts\check-whatsapp-evolution-vps.ps1`

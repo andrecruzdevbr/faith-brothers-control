@@ -95,10 +95,10 @@ Deploy das functions em `supabase/functions/`:
 
 Com `WHATSAPP_SEND_ENABLED=false`, o app pode enfileirar mensagens e consultar status, mas **não envia** WhatsApp automaticamente.
 
-- Instância final: `FaithBrothersControl` (`WHATSAPP_EVOLUTION_INSTANCE`)
+- Instância oficial: `FaithBrothersAcademia` (`WHATSAPP_EVOLUTION_INSTANCE`)
 - Docker/Edge local → `WHATSAPP_EVOLUTION_BASE_URL=http://host.docker.internal:8085`
 - Cloud/VPS → `WHATSAPP_EVOLUTION_BASE_URL=http://2.24.108.128:8080` (secrets no Supabase; nunca no frontend)
-- Navegador/QR local → `http://localhost:8085/instance/connect/FaithBrothersControl`
+- Navegador/QR local → `http://localhost:8085/instance/connect/FaithBrothersAcademia`
 - Antigas (não usar): `faithbrothers-teste`, `faithbrothers-teste-2`
 - Não alterar/apagar a instância `agroraiz-teste` (outro projeto / AgroRaiz)
 - Deploy das functions WhatsApp: `scripts/deploy-whatsapp-functions.ps1` (para se o projeto estiver `INACTIVE`)

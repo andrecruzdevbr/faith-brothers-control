@@ -5,7 +5,7 @@
 
 .DESCRIPTION
   - Base: http://2.24.108.128:8080
-  - Instancia: FaithBrothersControl
+  - Instancia: FaithBrothersAcademia
   - API key: env local OU SSH opcional em /opt/evolution-faithbrothers/.env
   - Nao altera VPS, volumes ou instancias
 #>
@@ -13,7 +13,7 @@
 $ErrorActionPreference = "Stop"
 
 $baseUrl = "http://2.24.108.128:8080"
-$instance = "FaithBrothersControl"
+$instance = "FaithBrothersAcademia"
 $sshHost = $env:EVOLUTION_SSH_HOST
 $sshUser = $env:EVOLUTION_SSH_USER
 if ([string]::IsNullOrWhiteSpace($sshUser)) { $sshUser = "root" }
@@ -179,7 +179,7 @@ Write-Host "Instance      : $instance"
 Write-Host ("State         : " + $(if ($state) { $state } else { "(desconhecido)" }))
 Write-Host "Open          : $connected"
 if ($connected) {
-  Write-Ok "Instancia FaithBrothersControl conectada (state=open)."
+  Write-Ok "Instancia FaithBrothersAcademia conectada (state=open)."
 }
 else {
   Write-Warn "Instancia NAO esta open. Escaneie QR / aguarde pareamento."

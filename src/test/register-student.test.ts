@@ -64,6 +64,7 @@ describe("register-student WhatsApp confirmation", () => {
 
     expect(queueWhatsAppFn).toHaveBeenCalledOnce();
     expect(queueWhatsAppFn.mock.calls[0][0].recipient).toBe("31985010010");
+    expect(queueWhatsAppFn.mock.calls[0][0].messageType).toBe("registration");
     expect(queueWhatsAppFn.mock.calls[0][0].body).toContain("Maria Souza");
     expect(result).toEqual({
       queued: true,

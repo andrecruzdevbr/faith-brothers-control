@@ -28,7 +28,7 @@ export async function dispatchRegistrationWhatsApp(params: {
       studentId: params.studentId,
       recipient: params.whatsapp,
       body: buildRegistrationReceivedMessage(params.fullName),
-      messageType: "general",
+      messageType: "registration",
       sendImmediately: true,
     });
     return toWhatsAppDispatchInfo(queueResult);
