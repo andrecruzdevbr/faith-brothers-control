@@ -2,8 +2,8 @@
 
 **Projeto:** Faith Brothers Control  
 **Data:** 2026-08-06 (atualizado 2026-08-07)  
-**Fase:** 3 — UI cadastro / aprovação / perfil (código local; **não** aplicado em produção)  
-**Status:** Fase 3 implementada; aguardando revisão antes de commit / `db push` / deploy  
+**Fase:** 4 — Go-live controlado (migrations + flags Faith Brothers)  
+**Status:** produção atualizada; flags ON só Faith Brothers; **sem** 1º pagamento real autorizado  
 
 ---
 
@@ -497,14 +497,12 @@ UI cadastro/aprovação/perfil, integração cron, WhatsApp, ativar flag Faith B
 
 ### 15.6 Pendências Fase 4
 
-- Deploy migrations + edge functions em ambiente autorizado.
-- WhatsApp `contract_approved` / mensagem ao responsável (idempotente; send desligado até OK).
-- Ativar `prepaid_contracts_enabled` / `family_plans_enabled` só Faith Brothers após smoke.
-- Smoke E2E cadastro→aprovação→skip cron (sem cobrança real).
-- Regenerar types completos pós-apply.
+Ver `FASE_4_GO_LIVE_PACOTES_FAMILIARES.md` — **executada em 2026-08-07**.
+
+Pendência residual: autorização para o **primeiro pagamento real** + eventual envio WhatsApp real de `contract_approved`.
 
 ---
 
 ## 16. Conclusão
 
-Fases 1–3 em código local. **Aguardando OK** para commit e, em passo separado, apply/deploy.
+Fases 1–4 aplicadas. Produção preservada; fluxo mensal intacto; prepaid/familiar prontos com flags na Faith Brothers. **Não confirmar pagamento real sem OK explícito.**
