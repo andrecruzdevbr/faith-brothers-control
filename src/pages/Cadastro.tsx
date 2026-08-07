@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -11,12 +11,22 @@ import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { callEdgeFunction } from "@/lib/api";
+import { callEdgeFunction, formatCurrency } from "@/lib/api";
 import { getHomePath } from "@/lib/access";
 import { isValidBrazilianWhatsapp, normalizeWhatsapp } from "@/lib/whatsapp-auth";
 import { isValidTaxId, normalizeTaxId } from "@/lib/tax-id";
 import { formatPlanOptionLabel, type PlanOption } from "@/lib/plans";
 import { isMinor, validateStudentBirthFields } from "@/lib/student-age";
+import {
+  PREPAID_PAYMENT_METHOD_LABELS,
+  buildCoverageMonths,
+  estimatedInstallmentAmount,
+  formatCoverageMonthLabel,
+  isMachineBillingMode,
+  planDisplayTotal,
+  resolveInstallments,
+  type PrepaidPaymentMethod,
+} from "@/lib/prepaid-contracts";
 
 const BELTS = [
   "Branca",
@@ -44,16 +54,21 @@ const signupSchema = z
     guardianName: z.string().trim().max(120).optional().or(z.literal("")),
     academyId: z.string().uuid("Selecione uma academia"),
     planId: z.string().uuid("Selecione o plano desejado"),
-    billingTaxId: z
-      .string()
-      .trim()
-      .min(1, "Informe o CPF ou CNPJ de cobrança")
-      .refine((value) => isValidTaxId(value), {
-        message: "CPF (11 dígitos) ou CNPJ (14 dígitos) inválido",
-      }),
+    billingTaxId: z.string().trim().optional().or(z.literal("")),
     belt: z.string().optional(),
     password: z.string().min(8, "A senha precisa ter pelo menos 8 caracteres").max(100),
     confirmPassword: z.string().min(8).max(100),
+    contractType: z.enum(["individual", "familiar"]),
+    familyMode: z.enum(["create", "join"]).optional(),
+    familyName: z.string().trim().max(120).optional().or(z.literal("")),
+    familyInviteCode: z.string().trim().max(20).optional().or(z.literal("")),
+    familyRelationship: z.string().trim().max(40).optional().or(z.literal("")),
+    estimatedMemberCount: z.string().optional().or(z.literal("")),
+    financialResponsibleName: z.string().trim().max(120).optional().or(z.literal("")),
+    paymentMethod: z
+      .enum(["cartao_credito", "cartao_debito", "pix", "dinheiro"])
+      .optional(),
+    installments: z.string().optional().or(z.literal("")),
   })
   .superRefine((data, ctx) => {
     const birthError = validateStudentBirthFields({
@@ -74,7 +89,13 @@ const signupSchema = z
   });
 
 type SignupValues = z.infer<typeof signupSchema>;
-type AcademyOption = { id: string; name: string; slug: string };
+type AcademyOption = {
+  id: string;
+  name: string;
+  slug: string;
+  prepaid_contracts_enabled?: boolean;
+  family_plans_enabled?: boolean;
+};
 
 const Cadastro = () => {
   const navigate = useNavigate();
@@ -99,12 +120,34 @@ const Cadastro = () => {
       belt: "Branca",
       password: "",
       confirmPassword: "",
+      contractType: "individual",
+      familyMode: "create",
+      familyName: "",
+      familyInviteCode: "",
+      familyRelationship: "responsável",
+      estimatedMemberCount: "3",
+      financialResponsibleName: "",
+      paymentMethod: undefined,
+      installments: "1",
     },
   });
 
   const selectedAcademyId = form.watch("academyId");
+  const selectedPlanId = form.watch("planId");
   const birthDateWatch = form.watch("birthDate");
+  const contractType = form.watch("contractType");
+  const familyMode = form.watch("familyMode");
+  const paymentMethod = form.watch("paymentMethod");
+  const installmentsWatch = form.watch("installments");
   const showGuardianRequired = !!birthDateWatch && isMinor(birthDateWatch);
+
+  const selectedAcademy = academies.find((a) => a.id === selectedAcademyId);
+  const prepaidEnabled = !!selectedAcademy?.prepaid_contracts_enabled;
+  const familyEnabled = !!selectedAcademy?.family_plans_enabled;
+  const selectedPlan = plans.find((p) => p.id === selectedPlanId);
+  const machinePlan = isMachineBillingMode(selectedPlan?.billing_mode);
+  const joiningFamily = contractType === "familiar" && familyMode === "join";
+  const requireTaxId = !joiningFamily;
 
   useEffect(() => {
     const loadAcademies = async () => {
@@ -112,7 +155,7 @@ const Cadastro = () => {
       if (error) {
         toast({ title: "Não foi possível carregar as academias", description: error.message, variant: "destructive" });
       } else {
-        setAcademies(data ?? []);
+        setAcademies((data ?? []) as AcademyOption[]);
       }
       setLoadingAcademies(false);
     };
@@ -148,6 +191,15 @@ const Cadastro = () => {
             name: p.name,
             monthly_price: Number(p.monthly_price),
             training_days_per_week: p.training_days_per_week,
+            audience: (p as PlanOption).audience,
+            plan_kind: (p as PlanOption).plan_kind,
+            duration_months: (p as PlanOption).duration_months ?? 1,
+            reference_monthly_price: (p as PlanOption).reference_monthly_price,
+            package_total_amount: (p as PlanOption).package_total_amount,
+            billing_mode: (p as PlanOption).billing_mode ?? "asaas_monthly",
+            allows_installments: (p as PlanOption).allows_installments ?? false,
+            max_installments: (p as PlanOption).max_installments ?? 1,
+            description: (p as PlanOption).description,
           })),
         );
       }
@@ -159,6 +211,40 @@ const Cadastro = () => {
     };
   }, [selectedAcademyId, form, toast]);
 
+  useEffect(() => {
+    if (!familyEnabled && contractType === "familiar") {
+      form.setValue("contractType", "individual");
+    }
+  }, [familyEnabled, contractType, form]);
+
+  useEffect(() => {
+    if (!machinePlan) {
+      form.setValue("paymentMethod", undefined);
+      form.setValue("installments", "1");
+    }
+  }, [machinePlan, form]);
+
+  const installmentInfo = useMemo(() => {
+    if (!machinePlan || !selectedPlan || !paymentMethod) return null;
+    const total = planDisplayTotal(selectedPlan);
+    const resolved = resolveInstallments({
+      paymentMethod: paymentMethod as PrepaidPaymentMethod,
+      requestedInstallments: Number(installmentsWatch || 1),
+      allowsInstallments: !!selectedPlan.allows_installments,
+      maxInstallments: selectedPlan.max_installments ?? 1,
+    });
+    return {
+      total,
+      installments: resolved.installments,
+      error: resolved.error,
+      parcel: estimatedInstallmentAmount(total, resolved.installments),
+      months: buildCoverageMonths(
+        new Date().toISOString().slice(0, 10),
+        Number(selectedPlan.duration_months ?? 0),
+      ),
+    };
+  }, [machinePlan, selectedPlan, paymentMethod, installmentsWatch]);
+
   if (!loading && isAuthenticated) {
     return <Navigate to={getHomePath(roles)} replace />;
   }
@@ -169,6 +255,40 @@ const Cadastro = () => {
   };
 
   const onSubmit = async (values: SignupValues) => {
+    if (requireTaxId && !isValidTaxId(values.billingTaxId || "")) {
+      form.setError("billingTaxId", { message: "CPF (11 dígitos) ou CNPJ (14 dígitos) inválido" });
+      return;
+    }
+    if (machinePlan && !values.paymentMethod) {
+      form.setError("paymentMethod", { message: "Selecione a forma de pagamento" });
+      return;
+    }
+    if (values.contractType === "familiar") {
+      if (!values.familyMode) {
+        toast({ title: "Informe se cria ou entra em uma família", variant: "destructive" });
+        return;
+      }
+      if (values.familyMode === "join" && !(values.familyInviteCode || "").trim()) {
+        form.setError("familyInviteCode", { message: "Informe o código familiar" });
+        return;
+      }
+    }
+
+    let installments = 1;
+    if (machinePlan && values.paymentMethod && selectedPlan) {
+      const resolved = resolveInstallments({
+        paymentMethod: values.paymentMethod,
+        requestedInstallments: Number(values.installments || 1),
+        allowsInstallments: !!selectedPlan.allows_installments,
+        maxInstallments: selectedPlan.max_installments ?? 1,
+      });
+      if (resolved.error) {
+        form.setError("installments", { message: resolved.error });
+        return;
+      }
+      installments = resolved.installments;
+    }
+
     setSubmitting(true);
     const whatsapp = normalizeWhatsapp(values.whatsapp);
 
@@ -181,17 +301,31 @@ const Cadastro = () => {
           password: values.password,
           academy_id: values.academyId,
           belt: values.belt || "Branca",
-          billing_tax_id: normalizeTaxId(values.billingTaxId),
+          billing_tax_id: values.billingTaxId ? normalizeTaxId(values.billingTaxId) : null,
           plan_id: values.planId,
           birth_date: values.birthDate,
           guardian_name: values.guardianName?.trim() || null,
+          payment_method: machinePlan ? values.paymentMethod : null,
+          installments: machinePlan ? installments : null,
+          contract_type: values.contractType,
+          family_mode: values.contractType === "familiar" ? values.familyMode : null,
+          family_name: values.familyName?.trim() || null,
+          family_invite_code: values.familyInviteCode?.trim().toUpperCase() || null,
+          family_relationship: values.familyRelationship?.trim() || "integrante",
+          estimated_member_count: Number(values.estimatedMemberCount || 0) || null,
+          financial_responsible_name:
+            values.financialResponsibleName?.trim() || values.fullName.trim(),
+          financial_responsible_phone: whatsapp,
         },
         { requireAuth: false },
       );
 
       toast({
         title: "Cadastro realizado",
-        description: "Aguarde a aprovação da academia. Depois disso, faça login com seu WhatsApp e senha.",
+        description:
+          machinePlan
+            ? "Aguarde a academia confirmar o pagamento. Nenhum boleto é gerado no cadastro."
+            : "Aguarde a aprovação da academia. Depois disso, faça login com seu WhatsApp e senha.",
       });
       navigate("/login", { replace: true });
     } catch (err) {
@@ -207,6 +341,11 @@ const Cadastro = () => {
   };
 
   const noActivePlans = !!selectedAcademyId && !loadingPlans && plans.length === 0;
+  const showCreditInstallments =
+    machinePlan &&
+    paymentMethod === "cartao_credito" &&
+    !!selectedPlan?.allows_installments &&
+    (selectedPlan.max_installments ?? 1) > 1;
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4 py-10">
@@ -303,7 +442,10 @@ const Cadastro = () => {
                 name="billingTaxId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>CPF ou CNPJ de cobrança</FormLabel>
+                    <FormLabel>
+                      CPF ou CNPJ de cobrança
+                      {requireTaxId ? "" : " (opcional se entrar em família)"}
+                    </FormLabel>
                     <FormControl>
                       <Input
                         inputMode="numeric"
@@ -316,7 +458,7 @@ const Cadastro = () => {
                       />
                     </FormControl>
                     <p className="text-xs text-muted-foreground">
-                      Usado apenas para emissão de boletos. Não será exibido publicamente.
+                      No plano familiar, o CPF identifica o responsável financeiro. Não é exibido publicamente.
                     </p>
                     <FormMessage />
                   </FormItem>
@@ -352,6 +494,135 @@ const Cadastro = () => {
                 )}
               />
 
+              {familyEnabled ? (
+                <FormField
+                  control={form.control}
+                  name="contractType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tipo de vínculo</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="individual">Individual</SelectItem>
+                          <SelectItem value="familiar">Familiar</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
+
+              {familyEnabled && contractType === "familiar" ? (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="familyMode"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Família</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="create">Criar nova família</SelectItem>
+                            <SelectItem value="join">Entrar em família existente</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {familyMode === "create" ? (
+                    <>
+                      <FormField
+                        control={form.control}
+                        name="familyName"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Nome do grupo familiar</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Ex.: Família Silva" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="financialResponsibleName"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Responsável financeiro</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Nome do responsável" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="estimatedMemberCount"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Qtd. estimada de integrantes</FormLabel>
+                            <FormControl>
+                              <Input inputMode="numeric" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </>
+                  ) : (
+                    <FormField
+                      control={form.control}
+                      name="familyInviteCode"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Código familiar</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="Informado pelo responsável"
+                              value={field.value}
+                              onChange={(e) => field.onChange(e.target.value.toUpperCase())}
+                            />
+                          </FormControl>
+                          <p className="text-xs text-muted-foreground">
+                            O vínculo fica pendente até o administrador confirmar.
+                          </p>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+
+                  <FormField
+                    control={form.control}
+                    name="familyRelationship"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Parentesco</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Ex.: pai, filho, mãe" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              ) : null}
+
               <FormField
                 control={form.control}
                 name="planId"
@@ -386,19 +657,110 @@ const Cadastro = () => {
                         ))}
                       </SelectContent>
                     </Select>
-                    {noActivePlans ? (
-                      <p className="text-sm text-warning">
-                        Cadastre um plano ativo antes de vincular.
+                    {selectedPlan?.description ? (
+                      <p className="text-xs text-muted-foreground">{selectedPlan.description}</p>
+                    ) : machinePlan ? (
+                      <p className="text-xs text-muted-foreground">
+                        Pagamento na academia. Parcelas do cartão são só informação da maquininha — o mês
+                        da data de início conta inteiro (mesmo começando no meio do mês).
                       </p>
                     ) : (
                       <p className="text-xs text-muted-foreground">
                         Você fica pendente até a academia aprovar. Nenhuma cobrança é gerada no cadastro.
                       </p>
                     )}
+                    {!prepaidEnabled && selectedAcademyId ? (
+                      <p className="text-xs text-muted-foreground">
+                        Pacotes antecipados ainda não estão habilitados nesta academia.
+                      </p>
+                    ) : null}
                     <FormMessage />
                   </FormItem>
                 )}
               />
+
+              {machinePlan ? (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="paymentMethod"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Forma de pagamento</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {(Object.keys(PREPAID_PAYMENT_METHOD_LABELS) as PrepaidPaymentMethod[]).map(
+                              (method) => (
+                                <SelectItem key={method} value={method}>
+                                  {PREPAID_PAYMENT_METHOD_LABELS[method]}
+                                </SelectItem>
+                              ),
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {showCreditInstallments ? (
+                    <FormField
+                      control={form.control}
+                      name="installments"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Parcelas (maquininha)</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value || "1"}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {Array.from(
+                                { length: selectedPlan?.max_installments ?? 1 },
+                                (_, i) => i + 1,
+                              ).map((n) => (
+                                <SelectItem key={n} value={String(n)}>
+                                  {n}x
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  ) : null}
+
+                  {installmentInfo ? (
+                    <div className="rounded-xl border border-border bg-secondary/40 p-3 text-sm space-y-1">
+                      <p>
+                        Total: <strong>{formatCurrency(installmentInfo.total)}</strong>
+                      </p>
+                      <p>
+                        Parcelas (metadado): {installmentInfo.installments}x de{" "}
+                        {formatCurrency(installmentInfo.parcel)}
+                      </p>
+                      {installmentInfo.months.length > 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Após confirmação do admin, meses liberados (exemplo a partir de hoje):{" "}
+                          {installmentInfo.months.map(formatCoverageMonthLabel).join(", ")}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Avulso: não cria meses futuros nem entra no cron de boletos.
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
 
               <FormField
                 control={form.control}

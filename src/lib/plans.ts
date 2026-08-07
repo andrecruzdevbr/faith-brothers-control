@@ -3,6 +3,15 @@ export type PlanOption = {
   name: string;
   monthly_price: number;
   training_days_per_week?: number | null;
+  audience?: string | null;
+  plan_kind?: string | null;
+  duration_months?: number | null;
+  reference_monthly_price?: number | null;
+  package_total_amount?: number | null;
+  billing_mode?: string | null;
+  allows_installments?: boolean | null;
+  max_installments?: number | null;
+  description?: string | null;
 };
 
 export type PendingPlanChange = {
@@ -23,12 +32,25 @@ export const ACADEMY_REAL_PLANS = [
 export function formatPlanOptionLabel(plan: {
   name: string;
   monthly_price: number;
+  package_total_amount?: number | null;
+  billing_mode?: string | null;
+  duration_months?: number | null;
 }): string {
-  const price = Number(plan.monthly_price);
-  const formatted = Number.isFinite(price)
-    ? price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+  const isPackage =
+    plan.billing_mode === "machine_prepaid" || plan.billing_mode === "machine_dropin";
+  const amount = isPackage && plan.package_total_amount != null
+    ? Number(plan.package_total_amount)
+    : Number(plan.monthly_price);
+  const formatted = Number.isFinite(amount)
+    ? amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
     : "R$ —";
-  return `${plan.name} — ${formatted}`;
+  const suffix =
+    isPackage && plan.duration_months && plan.duration_months > 0
+      ? ` · ${plan.duration_months} meses`
+      : isPackage && plan.duration_months === 0
+        ? " · avulso"
+        : "";
+  return `${plan.name} — ${formatted}${suffix}`;
 }
 
 export function formatPlanListLabel(

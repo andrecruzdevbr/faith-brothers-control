@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { StudentPlanEditor } from "@/components/StudentPlanEditor";
+import { StudentContractOverview } from "@/components/StudentContractOverview";
 import { useMyBillings } from "@/hooks/useQueries";
 import { formatCurrency, formatDateBR } from "@/lib/api";
 import { BILLING_STATUS_LABELS } from "@/lib/constants";
@@ -126,6 +127,8 @@ const MeuFinanceiro = () => {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl md:text-3xl font-display font-bold tracking-wider">MEU FINANCEIRO</h1>
+
+      <StudentContractOverview studentId={student.id} />
 
       <motion.div
         initial={{ opacity: 0, y: 10 }}

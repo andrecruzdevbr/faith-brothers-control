@@ -23,7 +23,7 @@ export function useStudents(page = 1, search = "") {
     queryFn: async () => {
       let query = supabase
         .from("students")
-        .select("*, plans(name, monthly_price)", { count: "exact" })
+        .select("*, plans(name, monthly_price, package_total_amount, duration_months, billing_mode, allows_installments, max_installments, training_days_per_week)", { count: "exact" })
         .eq("academy_id", academyId!)
         .order("full_name")
         .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);

@@ -33,7 +33,12 @@ type StudentBillingProfile = {
   tax_id: string | null;
 };
 
-type PlanEmbed = { id: string; name: string; monthly_price: number };
+type PlanEmbed = {
+  id: string;
+  name: string;
+  monthly_price: number;
+  billing_mode?: string | null;
+};
 type AcademyEmbed = {
   name: string;
   finance_contact_name: string;
@@ -332,7 +337,7 @@ Deno.serve(async (req) => {
       .select(`
         id, academy_id, full_name, email, whatsapp, asaas_customer_id, plan_id,
         student_billing_profiles ( tax_id ),
-        plans ( id, name, monthly_price ),
+        plans ( id, name, monthly_price, billing_mode ),
         academies!inner ( name, finance_contact_name, finance_whatsapp,
           academy_billing_settings ( boleto_issue_day, boleto_due_day, send_whatsapp_automatically )
         )
@@ -396,6 +401,34 @@ Deno.serve(async (req) => {
       const period = periodResult.period;
       runPeriod = period;
       if (periodResult.adjusted) referenceAdjusted = true;
+
+      // Prepaid / family coverage: never create Asaas boleto for covered months
+      try {
+        const { data: skipReason } = await supabase.rpc("prepaid_cron_skip_reason" as never, {
+          _student_id: student.id,
+          _reference_month: period.referenceMonth,
+        } as never);
+        if (typeof skipReason === "string" && skipReason.length > 0) {
+          processed.push({
+            studentId: student.id,
+            studentName: student.full_name,
+            status: skipReason as BillingProcessedEntry["status"],
+          });
+          continue;
+        }
+      } catch {
+        // If migration not applied yet, fall through to billing_mode check below.
+      }
+
+      const billingMode = String(plan.billing_mode ?? "asaas_monthly");
+      if (billingMode !== "asaas_monthly") {
+        processed.push({
+          studentId: student.id,
+          studentName: student.full_name,
+          status: "skipped_non_asaas_plan" as BillingProcessedEntry["status"],
+        });
+        continue;
+      }
 
       if (shouldSkipBeforeIssueDay(today, settings.boleto_issue_day, force)) {
         processed.push({

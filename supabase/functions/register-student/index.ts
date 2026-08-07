@@ -13,10 +13,21 @@ type RegisterBody = {
   password?: string;
   academy_id?: string;
   belt?: string;
-  billing_tax_id?: string;
+  billing_tax_id?: string | null;
   plan_id?: string;
   birth_date?: string;
   guardian_name?: string;
+  payment_method?: string | null;
+  installments?: number | null;
+  contract_type?: string | null;
+  family_mode?: string | null;
+  family_name?: string | null;
+  family_invite_code?: string | null;
+  family_relationship?: string | null;
+  estimated_member_count?: number | null;
+  financial_responsible_name?: string | null;
+  financial_responsible_phone?: string | null;
+  financial_responsible_email?: string | null;
 };
 
 type RegistrationState = "available" | "complete" | "partial";
@@ -90,10 +101,37 @@ Deno.serve(async (req) => {
     const password = String(body.password ?? "");
     const academyId = String(body.academy_id ?? "");
     const belt = String(body.belt ?? "Branca").trim() || "Branca";
-    const billingTaxId = normalizeTaxId(String(body.billing_tax_id ?? ""));
+    const rawTaxId = body.billing_tax_id == null ? "" : String(body.billing_tax_id);
+    const billingTaxId = rawTaxId ? normalizeTaxId(rawTaxId) : "";
     const planId = String(body.plan_id ?? "").trim();
     const birthDate = String(body.birth_date ?? "").trim();
     const guardianName = String(body.guardian_name ?? "").trim();
+    const paymentMethod = body.payment_method ? String(body.payment_method).trim() : null;
+    const installments =
+      body.installments == null || body.installments === undefined
+        ? null
+        : Number(body.installments);
+    const contractType = String(body.contract_type ?? "individual").trim() || "individual";
+    const familyMode = body.family_mode ? String(body.family_mode).trim() : null;
+    const familyName = body.family_name ? String(body.family_name).trim() : null;
+    const familyInviteCode = body.family_invite_code
+      ? String(body.family_invite_code).trim().toUpperCase()
+      : null;
+    const familyRelationship = body.family_relationship
+      ? String(body.family_relationship).trim()
+      : "integrante";
+    const estimatedMemberCount =
+      body.estimated_member_count == null ? null : Number(body.estimated_member_count);
+    const financialResponsibleName = body.financial_responsible_name
+      ? String(body.financial_responsible_name).trim()
+      : null;
+    const financialResponsiblePhone = body.financial_responsible_phone
+      ? String(body.financial_responsible_phone).trim()
+      : null;
+    const financialResponsibleEmail = body.financial_responsible_email
+      ? String(body.financial_responsible_email).trim()
+      : null;
+    const joiningFamily = contractType === "familiar" && familyMode === "join";
 
     if (!/^\d{11}$/.test(whatsapp)) {
       return new Response(
@@ -124,11 +162,17 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (!isValidTaxId(billingTaxId)) {
+    if (!joiningFamily && !isValidTaxId(billingTaxId)) {
       return new Response(
         JSON.stringify({ error: "CPF ou CNPJ inválido. Informe 11 dígitos (CPF) ou 14 dígitos (CNPJ)." }),
         { status: 400, headers },
       );
+    }
+    if (joiningFamily && billingTaxId && !isValidTaxId(billingTaxId)) {
+      return new Response(JSON.stringify({ error: "CPF ou CNPJ inválido." }), {
+        status: 400,
+        headers,
+      });
     }
 
     if (!academyId) {
@@ -160,7 +204,7 @@ Deno.serve(async (req) => {
 
     const { data: plan, error: planError } = await supabase
       .from("plans")
-      .select("id")
+      .select("id, billing_mode, allows_installments, max_installments")
       .eq("id", planId)
       .eq("academy_id", academyId)
       .eq("active", true)
@@ -172,6 +216,18 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: "Plano inválido ou inativo. Cadastre um plano ativo antes de vincular." }),
         { status: 400, headers },
       );
+    }
+
+    const billingMode = String((plan as { billing_mode?: string }).billing_mode ?? "asaas_monthly");
+    if (
+      (billingMode === "machine_prepaid" || billingMode === "machine_dropin") &&
+      (!paymentMethod ||
+        !["cartao_credito", "cartao_debito", "pix", "dinheiro"].includes(paymentMethod))
+    ) {
+      return new Response(JSON.stringify({ error: "Informe a forma de pagamento do pacote." }), {
+        status: 400,
+        headers,
+      });
     }
 
     const email = toSyntheticEmail(whatsapp);
@@ -194,17 +250,19 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { data: taxDuplicate } = await supabase
-      .from("student_billing_profiles")
-      .select("student_id")
-      .eq("tax_id", billingTaxId)
-      .maybeSingle();
+    if (billingTaxId) {
+      const { data: taxDuplicate } = await supabase
+        .from("student_billing_profiles")
+        .select("student_id")
+        .eq("tax_id", billingTaxId)
+        .maybeSingle();
 
-    if (taxDuplicate) {
-      return new Response(
-        JSON.stringify({ error: "Este CPF/CNPJ já está cadastrado." }),
-        { status: 409, headers },
-      );
+      if (taxDuplicate) {
+        return new Response(
+          JSON.stringify({ error: "Este CPF/CNPJ já está cadastrado." }),
+          { status: 409, headers },
+        );
+      }
     }
 
     let createdUserId: string | null = null;
@@ -243,10 +301,23 @@ Deno.serve(async (req) => {
           _full_name: fullName,
           _whatsapp: whatsapp,
           _belt: belt,
-          _tax_id: billingTaxId,
+          _tax_id: billingTaxId || null,
           _plan_id: planId,
           _birth_date: birthDate,
           _guardian_name: guardianName || null,
+          _payment_method: paymentMethod,
+          _installments: Number.isFinite(installments as number) ? installments : null,
+          _contract_type: contractType,
+          _family_mode: familyMode,
+          _family_name: familyName,
+          _family_invite_code: familyInviteCode,
+          _family_relationship: familyRelationship,
+          _estimated_member_count: Number.isFinite(estimatedMemberCount as number)
+            ? estimatedMemberCount
+            : null,
+          _financial_responsible_name: financialResponsibleName,
+          _financial_responsible_phone: financialResponsiblePhone,
+          _financial_responsible_email: financialResponsibleEmail,
         },
       );
 

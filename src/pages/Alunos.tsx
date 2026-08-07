@@ -14,6 +14,8 @@ import {
 import { StudentBillingTaxIdEditor } from "@/components/StudentBillingTaxIdEditor";
 import { StudentPlanEditor } from "@/components/StudentPlanEditor";
 import { StudentBirthEditor } from "@/components/StudentBirthEditor";
+import { PrepaidApprovalDialog } from "@/components/PrepaidApprovalDialog";
+import { needsPaymentReview } from "@/lib/prepaid-contracts";
 import { supabase } from "@/integrations/supabase/client";
 import { useAcademyId, useStudents } from "@/hooks/useQueries";
 import { useAuth } from "@/contexts/AuthContext";
@@ -131,6 +133,26 @@ const Alunos = () => {
     name: string;
     birthDate: string | null;
     guardianName: string | null;
+  } | null>(null);
+  const [prepaidStudent, setPrepaidStudent] = useState<{
+    id: string;
+    full_name: string;
+    plan_id: string | null;
+    requested_payment_method?: string | null;
+    requested_installments?: number | null;
+    payment_review_status?: string | null;
+    pending_family_group_id?: string | null;
+    pending_family_invite_code?: string | null;
+    plans?: {
+      name?: string | null;
+      monthly_price?: number | null;
+      package_total_amount?: number | null;
+      duration_months?: number | null;
+      billing_mode?: string | null;
+      allows_installments?: boolean | null;
+      max_installments?: number | null;
+      training_days_per_week?: number | null;
+    } | null;
   } | null>(null);
 
   useEffect(() => {
@@ -469,15 +491,41 @@ const Alunos = () => {
                             </Button>
                             {isAdmin && isPending ? (
                               <>
-                                <Button
-                                  size="sm"
-                                  className="gradient-primary text-primary-foreground h-8 gap-1"
-                                  disabled={approvingId === aluno.id}
-                                  onClick={() => void handleApprove(aluno.id, true)}
-                                >
-                                  {approvingId === aluno.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                                  Aprovar
-                                </Button>
+                                {needsPaymentReview(
+                                  (aluno as { payment_review_status?: string | null }).payment_review_status,
+                                ) ? (
+                                  <Button
+                                    size="sm"
+                                    className="gradient-primary text-primary-foreground h-8 gap-1"
+                                    onClick={() => {
+                                      const plan = Array.isArray(aluno.plans) ? aluno.plans[0] : aluno.plans;
+                                      setPrepaidStudent({
+                                        id: aluno.id,
+                                        full_name: aluno.full_name,
+                                        plan_id: aluno.plan_id,
+                                        requested_payment_method: (aluno as { requested_payment_method?: string }).requested_payment_method,
+                                        requested_installments: (aluno as { requested_installments?: number }).requested_installments,
+                                        payment_review_status: (aluno as { payment_review_status?: string }).payment_review_status,
+                                        pending_family_group_id: (aluno as { pending_family_group_id?: string }).pending_family_group_id,
+                                        pending_family_invite_code: (aluno as { pending_family_invite_code?: string }).pending_family_invite_code,
+                                        plans: plan,
+                                      });
+                                    }}
+                                  >
+                                    <Wallet className="h-3 w-3" />
+                                    Revisar pagamento
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    className="gradient-primary text-primary-foreground h-8 gap-1"
+                                    disabled={approvingId === aluno.id}
+                                    onClick={() => void handleApprove(aluno.id, true)}
+                                  >
+                                    {approvingId === aluno.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                    Aprovar
+                                  </Button>
+                                )}
                                 <Button
                                   size="sm"
                                   variant="outline"
@@ -575,6 +623,28 @@ const Alunos = () => {
               onSaved={() => {
                 void queryClient.invalidateQueries({ queryKey: ["students"] });
                 setBirthStudent(null);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!prepaidStudent} onOpenChange={(open) => !open && setPrepaidStudent(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {(prepaidStudent as { pending_family_group_id?: string | null } | null)?.pending_family_group_id
+                ? "Aprovação familiar / pagamento"
+                : "Aprovação de pacote / pagamento"}
+            </DialogTitle>
+          </DialogHeader>
+          {prepaidStudent && (
+            <PrepaidApprovalDialog
+              student={prepaidStudent}
+              onDone={() => {
+                void queryClient.invalidateQueries({ queryKey: ["students"] });
+                void queryClient.invalidateQueries({ queryKey: ["student-financial-map"] });
+                setPrepaidStudent(null);
               }}
             />
           )}

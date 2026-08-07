@@ -311,6 +311,16 @@ export type Database = {
           name: string
           training_days_per_week: number | null
           updated_at: string
+          category: string | null
+          audience: string
+          plan_kind: string
+          duration_months: number
+          reference_monthly_price: number | null
+          package_total_amount: number | null
+          billing_mode: string
+          allows_installments: boolean
+          max_installments: number
+          description: string | null
         }
         Insert: {
           academy_id: string
@@ -321,6 +331,16 @@ export type Database = {
           name: string
           training_days_per_week?: number | null
           updated_at?: string
+          category?: string | null
+          audience?: string
+          plan_kind?: string
+          duration_months?: number
+          reference_monthly_price?: number | null
+          package_total_amount?: number | null
+          billing_mode?: string
+          allows_installments?: boolean
+          max_installments?: number
+          description?: string | null
         }
         Update: {
           academy_id?: string
@@ -331,6 +351,16 @@ export type Database = {
           name?: string
           training_days_per_week?: number | null
           updated_at?: string
+          category?: string | null
+          audience?: string
+          plan_kind?: string
+          duration_months?: number
+          reference_monthly_price?: number | null
+          package_total_amount?: number | null
+          billing_mode?: string
+          allows_installments?: boolean
+          max_installments?: number
+          description?: string | null
         }
         Relationships: [
           {
@@ -400,6 +430,11 @@ export type Database = {
           status: Database["public"]["Enums"]["student_status"]
           updated_at: string
           whatsapp: string
+          requested_payment_method: string | null
+          requested_installments: number | null
+          payment_review_status: string
+          pending_family_group_id: string | null
+          pending_family_invite_code: string | null
         }
         Insert: {
           academy_id: string
@@ -420,6 +455,11 @@ export type Database = {
           status?: Database["public"]["Enums"]["student_status"]
           updated_at?: string
           whatsapp: string
+          requested_payment_method?: string | null
+          requested_installments?: number | null
+          payment_review_status?: string
+          pending_family_group_id?: string | null
+          pending_family_invite_code?: string | null
         }
         Update: {
           academy_id?: string
@@ -440,6 +480,11 @@ export type Database = {
           status?: Database["public"]["Enums"]["student_status"]
           updated_at?: string
           whatsapp?: string
+          requested_payment_method?: string | null
+          requested_installments?: number | null
+          payment_review_status?: string
+          pending_family_group_id?: string | null
+          pending_family_invite_code?: string | null
         }
         Relationships: [
           {
@@ -792,6 +837,8 @@ export type Database = {
           id: string
           name: string
           slug: string
+          prepaid_contracts_enabled: boolean
+          family_plans_enabled: boolean
         }[]
       }
       get_public_active_plans: {
@@ -801,7 +848,49 @@ export type Database = {
           name: string
           monthly_price: number
           training_days_per_week: number
+          audience: string
+          plan_kind: string
+          duration_months: number
+          reference_monthly_price: number
+          package_total_amount: number
+          billing_mode: string
+          allows_installments: boolean
+          max_installments: number
+          description: string
         }[]
+      }
+      confirm_individual_prepaid_payment: {
+        Args: {
+          _student_id: string
+          _plan_id: string
+          _starts_on: string
+          _payment_method: string
+          _installments: number
+          _total_amount?: number | null
+          _machine_reference?: string | null
+          _notes?: string | null
+          _confirmation_meta?: Json
+        }
+        Returns: string
+      }
+      confirm_family_prepaid_payment: {
+        Args: {
+          _family_group_id: string
+          _plan_id: string
+          _starts_on: string
+          _payment_method: string
+          _installments: number
+          _member_student_ids: string[]
+          _total_amount?: number | null
+          _machine_reference?: string | null
+          _notes?: string | null
+          _confirmation_meta?: Json
+        }
+        Returns: string
+      }
+      prepaid_cron_skip_reason: {
+        Args: { _student_id: string; _reference_month: string }
+        Returns: string | null
       }
       update_student_plan: {
         Args: { _student_id: string; _plan_id?: string | null }

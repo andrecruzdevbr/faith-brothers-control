@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { formatWhatsapp } from "@/lib/whatsapp-auth";
 import { StudentBillingTaxIdEditor } from "@/components/StudentBillingTaxIdEditor";
+import { StudentContractOverview } from "@/components/StudentContractOverview";
 
 const MeuPerfil = () => {
   const { user, isAluno } = useAuth();
@@ -113,15 +114,18 @@ const MeuPerfil = () => {
       </motion.div>
 
       {isAluno && studentId && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.08 }}
-          className="rounded-xl border border-border bg-card p-6 shadow-card"
-        >
-          <h3 className="font-display text-lg font-bold tracking-wider mb-4">DADOS DE COBRANÇA</h3>
-          <StudentBillingTaxIdEditor studentId={studentId} />
-        </motion.div>
+        <>
+          <StudentContractOverview studentId={studentId} />
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.08 }}
+            className="rounded-xl border border-border bg-card p-6 shadow-card"
+          >
+            <h3 className="font-display text-lg font-bold tracking-wider mb-4">DADOS DE COBRANÇA</h3>
+            <StudentBillingTaxIdEditor studentId={studentId} />
+          </motion.div>
+        </>
       )}
 
       {/* Change password */}
