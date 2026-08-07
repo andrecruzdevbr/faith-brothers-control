@@ -177,6 +177,8 @@ export function useDashboardStats() {
         { data: dueSoon },
         { data: recentStudents },
         { data: recentGraduations },
+        { count: activeFamilyGroups },
+        { count: activeContracts },
       ] = await Promise.all([
         supabase.from("students").select("id", { count: "exact", head: true }).eq("academy_id", academyId!),
         supabase.from("students").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).eq("status", "ativo"),
@@ -188,6 +190,8 @@ export function useDashboardStats() {
         supabase.from("billings").select("*, students(full_name)").eq("academy_id", academyId!).in("status", ["pendente", "gerado", "enviado_whatsapp"]).gte("due_date", monthStart).lte("due_date", new Date(now.getTime() + 7 * 86400000).toISOString().slice(0, 10)).limit(10),
         supabase.from("students").select("full_name, created_at").eq("academy_id", academyId!).order("created_at", { ascending: false }).limit(5),
         supabase.from("students").select("full_name, belt, degrees, updated_at").eq("academy_id", academyId!).order("updated_at", { ascending: false }).limit(5),
+        supabase.from("family_groups").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).eq("status", "ativo"),
+        supabase.from("student_contracts").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).eq("contract_status", "ativo"),
       ]);
 
       const monthRevenue = (monthBillings ?? []).reduce((s, b) => s + Number(b.amount), 0);
@@ -199,6 +203,8 @@ export function useDashboardStats() {
         inactiveStudents: inactiveStudents ?? 0,
         presentToday: presentToday ?? 0,
         overdueCount: overdueCount ?? 0,
+        activeFamilyGroups: activeFamilyGroups ?? 0,
+        activeContracts: activeContracts ?? 0,
         monthRevenue,
         yearRevenue,
         dueSoon: dueSoon ?? [],

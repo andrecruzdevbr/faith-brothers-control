@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -631,7 +631,9 @@ export type Database = {
           id: string
           joined_at: string | null
           left_at: string | null
+          notes: string | null
           relationship: string
+          requested_weekly_frequency: number | null
           status: string
           student_id: string
           updated_at: string
@@ -642,7 +644,9 @@ export type Database = {
           id?: string
           joined_at?: string | null
           left_at?: string | null
+          notes?: string | null
           relationship?: string
+          requested_weekly_frequency?: number | null
           status?: string
           student_id: string
           updated_at?: string
@@ -653,7 +657,9 @@ export type Database = {
           id?: string
           joined_at?: string | null
           left_at?: string | null
+          notes?: string | null
           relationship?: string
+          requested_weekly_frequency?: number | null
           status?: string
           student_id?: string
           updated_at?: string
@@ -1260,6 +1266,7 @@ export type Database = {
           error_message: string | null
           external_id: string | null
           id: string
+          idempotency_key: string | null
           max_attempts: number
           message_type: string
           recipient: string
@@ -1278,6 +1285,7 @@ export type Database = {
           error_message?: string | null
           external_id?: string | null
           id?: string
+          idempotency_key?: string | null
           max_attempts?: number
           message_type?: string
           recipient: string
@@ -1296,6 +1304,7 @@ export type Database = {
           error_message?: string | null
           external_id?: string | null
           id?: string
+          idempotency_key?: string | null
           max_attempts?: number
           message_type?: string
           recipient?: string
@@ -1596,6 +1605,28 @@ export type Database = {
         Returns: string
       }
       record_attendance_by_token: { Args: { _token: string }; Returns: Json }
+      register_family_wizard_atomic: {
+        Args: {
+          _academy_id: string
+          _belt?: string
+          _birth_date?: string
+          _degrees?: number
+          _family_name?: string
+          _financial_responsible_email?: string
+          _full_name: string
+          _guardian_name?: string
+          _installments?: number
+          _members?: Json
+          _payment_method?: string
+          _plan_id?: string
+          _responsible_trains?: boolean
+          _responsible_weekly_frequency?: number
+          _tax_id?: string
+          _user_id: string
+          _whatsapp: string
+        }
+        Returns: Json
+      }
       reject_student: { Args: { _student_id: string }; Returns: undefined }
       reject_student_plan_change: {
         Args: { _request_id: string }
@@ -1604,6 +1635,19 @@ export type Database = {
       request_student_plan_change: {
         Args: { _requested_plan_id: string; _student_id: string }
         Returns: string
+      }
+      search_academy_students_for_family: {
+        Args: { _academy_id: string; _limit?: number; _query: string }
+        Returns: {
+          belt: string
+          birth_date: string
+          degrees: number
+          email: string
+          full_name: string
+          id: string
+          status: Database["public"]["Enums"]["student_status"]
+          whatsapp: string
+        }[]
       }
       student_has_prepaid_month_coverage: {
         Args: { _reference_month: string; _student_id: string }

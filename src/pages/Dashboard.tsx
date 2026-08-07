@@ -185,6 +185,8 @@ const Dashboard = () => {
         <StatsCard title="Alunos Ativos" value={stats?.activeStudents ?? 0} icon={UserCheck} variant="primary" />
         <StatsCard title="Alunos Inativos" value={stats?.inactiveStudents ?? 0} icon={UserX} variant="destructive" />
         <StatsCard title="Presentes Hoje" value={stats?.presentToday ?? 0} icon={UserCheck} variant="success" />
+        <StatsCard title="Grupos familiares" value={stats?.activeFamilyGroups ?? 0} icon={Users} variant="default" />
+        <StatsCard title="Contratos ativos" value={stats?.activeContracts ?? 0} icon={CalendarClock} variant="default" />
         <StatsCard title="Faturamento Mês" value={formatCurrency(stats?.monthRevenue ?? 0)} icon={DollarSign} variant="primary" />
         <StatsCard title="Faturamento Ano" value={formatCurrency(stats?.yearRevenue ?? 0)} icon={TrendingUp} variant="default" />
         <StatsCard title="Inadimplentes" value={stats?.overdueCount ?? 0} icon={AlertTriangle} variant="destructive" />

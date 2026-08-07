@@ -14,18 +14,19 @@ import { logSafeError } from "./sanitize-log.ts";
 export async function dispatchRegistrationWhatsApp(params: {
   supabase: SupabaseClient;
   academyId: string;
-  studentId: string;
+  studentId?: string | null;
   fullName: string;
   whatsapp: string;
   queueWhatsAppFn?: typeof queueWhatsApp;
 }): Promise<WhatsAppDispatchInfo> {
   const queueFn = params.queueWhatsAppFn ?? queueWhatsApp;
+  const studentId = params.studentId ? String(params.studentId) : null;
 
   try {
     const queueResult: QueueWhatsAppResult = await queueFn({
       supabase: params.supabase,
       academyId: params.academyId,
-      studentId: params.studentId,
+      studentId,
       recipient: params.whatsapp,
       body: buildRegistrationReceivedMessage(params.fullName),
       messageType: "registration",
@@ -36,7 +37,7 @@ export async function dispatchRegistrationWhatsApp(params: {
     logSafeError(
       "register-student whatsapp failed",
       {
-        studentId: params.studentId,
+        studentId,
         whatsapp: params.whatsapp,
         academyId: params.academyId,
       },

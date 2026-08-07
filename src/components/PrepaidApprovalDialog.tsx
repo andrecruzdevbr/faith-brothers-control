@@ -59,11 +59,14 @@ type FamilyMemberRow = {
   student_id: string;
   relationship: string;
   status: string;
+  requested_weekly_frequency?: number | null;
   students: {
     id: string;
     full_name: string;
     status: string;
     plan_id: string | null;
+    belt?: string | null;
+    degrees?: number | null;
     plans?: { training_days_per_week?: number | null; name?: string | null } | null;
   } | null;
 };
@@ -130,7 +133,7 @@ export function PrepaidApprovalDialog({ student, onDone }: Props) {
       const { data: memberRows, error: membersError } = await supabase
         .from("family_members")
         .select(
-          "id, student_id, relationship, status, students(id, full_name, status, plan_id, plans(name, training_days_per_week))",
+          "id, student_id, relationship, status, requested_weekly_frequency, students(id, full_name, status, plan_id, belt, degrees, plans(name, training_days_per_week))",
         )
         .eq("family_group_id", student.pending_family_group_id);
 
@@ -300,17 +303,35 @@ export function PrepaidApprovalDialog({ student, onDone }: Props) {
 
       {isFamily && family ? (
         <div className="rounded-lg border border-border p-3 text-sm space-y-2">
-          <p className="font-medium">Grupo familiar — {family.name}</p>
-          <p>Responsável: {family.financial_responsible_name}</p>
-          <p>CPF: {maskTaxId(family.financial_responsible_tax_id)}</p>
-          <p>Telefone: {family.financial_responsible_phone || "—"}</p>
-          <p>E-mail: {family.financial_responsible_email || "—"}</p>
-          <p className="text-xs text-muted-foreground">Código: {family.invite_code}</p>
+          <p className="font-medium">Família — {family.name}</p>
+          <p>
+            <span className="text-muted-foreground">Responsável financeiro:</span>{" "}
+            {family.financial_responsible_name}
+          </p>
+          <p>
+            <span className="text-muted-foreground">CPF/CNPJ cobrança:</span>{" "}
+            {maskTaxId(family.financial_responsible_tax_id)}
+          </p>
+          <p>
+            <span className="text-muted-foreground">WhatsApp:</span>{" "}
+            {family.financial_responsible_phone || "—"}
+          </p>
+          <p>
+            <span className="text-muted-foreground">E-mail:</span>{" "}
+            {family.financial_responsible_email || "—"}
+          </p>
           <div className="space-y-2 pt-2">
-            <p className="font-medium">Integrantes</p>
+            <p className="font-medium">Integrantes / praticantes ({members.length})</p>
             {members.map((m) => {
               const st = Array.isArray(m.students) ? m.students[0] : m.students;
               const checked = selectedMemberIds.includes(m.student_id);
+              const freq =
+                m.requested_weekly_frequency ??
+                st?.plans?.training_days_per_week ??
+                plan?.training_days_per_week ??
+                "—";
+              const belt = st?.belt ?? "Branca";
+              const deg = st?.degrees ?? 0;
               return (
                 <label key={m.id} className="flex items-start gap-2 text-sm">
                   <input
@@ -326,14 +347,18 @@ export function PrepaidApprovalDialog({ student, onDone }: Props) {
                     }}
                   />
                   <span>
-                    {st?.full_name ?? m.student_id} · {m.relationship} ·{" "}
-                    {st?.plans?.training_days_per_week ?? plan?.training_days_per_week ?? "—"}x/sem ·{" "}
+                    {st?.full_name ?? m.student_id} · {m.relationship} · {freq}x/sem · faixa{" "}
+                    {String(belt).toLowerCase()}, {deg} {deg === 1 ? "grau" : "graus"} ·{" "}
                     {st?.status}
                   </span>
                 </label>
               );
             })}
           </div>
+          <p className="text-xs text-muted-foreground">
+            Ao confirmar: 1 contrato + 1 pagamento + meses liberados para os praticantes
+            selecionados. Valor contabilizado uma vez (não multiplica por integrante).
+          </p>
         </div>
       ) : null}
 

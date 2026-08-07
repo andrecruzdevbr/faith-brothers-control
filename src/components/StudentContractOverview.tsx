@@ -71,11 +71,12 @@ export function StudentContractOverview({ studentId }: Props) {
         financial_responsible_tax_id: string | null;
       } | null = null;
       let relationship: string | null = null;
+      let memberFrequency: number | null = null;
 
       const { data: fm } = await supabase
         .from("family_members")
         .select(
-          "relationship, status, family_groups(name, financial_responsible_name, financial_responsible_tax_id)",
+          "relationship, status, requested_weekly_frequency, family_groups(name, financial_responsible_name, financial_responsible_tax_id)",
         )
         .eq("student_id", studentId)
         .in("status", ["ativo", "pendente"])
@@ -85,6 +86,7 @@ export function StudentContractOverview({ studentId }: Props) {
       if (fm) {
         const row = fm as {
           relationship: string;
+          requested_weekly_frequency?: number | null;
           family_groups:
             | {
                 name: string;
@@ -100,10 +102,17 @@ export function StudentContractOverview({ studentId }: Props) {
         };
         const g = Array.isArray(row.family_groups) ? row.family_groups[0] : row.family_groups;
         relationship = row.relationship;
+        memberFrequency = row.requested_weekly_frequency ?? null;
         if (g) family = g;
       }
 
-      return { monthRows, contract, family, relationship };
+      const { data: studentRow } = await supabase
+        .from("students")
+        .select("full_name, birth_date, belt, degrees, status")
+        .eq("id", studentId)
+        .maybeSingle();
+
+      return { monthRows, contract, family, relationship, memberFrequency, studentRow };
     },
   });
 
@@ -130,19 +139,43 @@ export function StudentContractOverview({ studentId }: Props) {
 
       {data?.family ? (
         <div className="text-sm space-y-1">
+          <p className="font-medium">Plano Familiar</p>
+          {data.studentRow ? (
+            <>
+              <p>
+                <span className="text-muted-foreground">Aluno:</span> {data.studentRow.full_name}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Nascimento:</span>{" "}
+                {data.studentRow.birth_date ? formatDateBR(data.studentRow.birth_date) : "—"}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Faixa / graus:</span>{" "}
+                {data.studentRow.belt ?? "Branca"} · {data.studentRow.degrees ?? 0}{" "}
+                {(data.studentRow.degrees ?? 0) === 1 ? "grau" : "graus"}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Frequência semanal:</span>{" "}
+                {data.memberFrequency ?? data.contract?.weekly_frequency ?? "—"} dias/semana
+              </p>
+              <p>
+                <span className="text-muted-foreground">Status:</span> {data.studentRow.status}
+              </p>
+            </>
+          ) : null}
           <p>
-            <span className="text-muted-foreground">Grupo familiar:</span> {data.family.name}
-          </p>
-          <p>
-            <span className="text-muted-foreground">Parentesco:</span> {data.relationship ?? "—"}
+            <span className="text-muted-foreground">Grupo:</span> {data.family.name}
           </p>
           <p>
             <span className="text-muted-foreground">Responsável financeiro:</span>{" "}
             {data.family.financial_responsible_name}
           </p>
           <p>
-            <span className="text-muted-foreground">CPF:</span>{" "}
+            <span className="text-muted-foreground">CPF/CNPJ cobrança:</span>{" "}
             {maskTaxId(data.family.financial_responsible_tax_id)}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Pagamento realizado pelo responsável financeiro. O CPF/CNPJ completo não é exibido.
           </p>
         </div>
       ) : null}

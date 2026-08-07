@@ -27,6 +27,7 @@ import {
   resolveInstallments,
   type PrepaidPaymentMethod,
 } from "@/lib/prepaid-contracts";
+import { FamilyRegistrationWizard } from "@/components/family/FamilyRegistrationWizard";
 
 const BELTS = [
   "Branca",
@@ -136,7 +137,6 @@ const Cadastro = () => {
   const selectedPlanId = form.watch("planId");
   const birthDateWatch = form.watch("birthDate");
   const contractType = form.watch("contractType");
-  const familyMode = form.watch("familyMode");
   const paymentMethod = form.watch("paymentMethod");
   const installmentsWatch = form.watch("installments");
   const showGuardianRequired = !!birthDateWatch && isMinor(birthDateWatch);
@@ -146,8 +146,7 @@ const Cadastro = () => {
   const familyEnabled = !!selectedAcademy?.family_plans_enabled;
   const selectedPlan = plans.find((p) => p.id === selectedPlanId);
   const machinePlan = isMachineBillingMode(selectedPlan?.billing_mode);
-  const joiningFamily = contractType === "familiar" && familyMode === "join";
-  const requireTaxId = !joiningFamily;
+  const requireTaxId = true;
 
   useEffect(() => {
     const loadAcademies = async () => {
@@ -263,17 +262,6 @@ const Cadastro = () => {
       form.setError("paymentMethod", { message: "Selecione a forma de pagamento" });
       return;
     }
-    if (values.contractType === "familiar") {
-      if (!values.familyMode) {
-        toast({ title: "Informe se cria ou entra em uma família", variant: "destructive" });
-        return;
-      }
-      if (values.familyMode === "join" && !(values.familyInviteCode || "").trim()) {
-        form.setError("familyInviteCode", { message: "Informe o código familiar" });
-        return;
-      }
-    }
-
     let installments = 1;
     if (machinePlan && values.paymentMethod && selectedPlan) {
       const resolved = resolveInstallments({
@@ -307,15 +295,7 @@ const Cadastro = () => {
           guardian_name: values.guardianName?.trim() || null,
           payment_method: machinePlan ? values.paymentMethod : null,
           installments: machinePlan ? installments : null,
-          contract_type: values.contractType,
-          family_mode: values.contractType === "familiar" ? values.familyMode : null,
-          family_name: values.familyName?.trim() || null,
-          family_invite_code: values.familyInviteCode?.trim().toUpperCase() || null,
-          family_relationship: values.familyRelationship?.trim() || "integrante",
-          estimated_member_count: Number(values.estimatedMemberCount || 0) || null,
-          financial_responsible_name:
-            values.financialResponsibleName?.trim() || values.fullName.trim(),
-          financial_responsible_phone: whatsapp,
+          contract_type: "individual",
         },
         { requireAuth: false },
       );
@@ -359,6 +339,33 @@ const Cadastro = () => {
         </section>
 
         <section className="p-8">
+          {familyEnabled ? (
+            <div className="mb-6 space-y-2">
+              <p className="text-sm font-medium">Escolha do plano</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={contractType === "individual" ? "default" : "outline"}
+                  onClick={() => form.setValue("contractType", "individual")}
+                >
+                  Individual
+                </Button>
+                <Button
+                  type="button"
+                  variant={contractType === "familiar" ? "default" : "outline"}
+                  onClick={() => form.setValue("contractType", "familiar")}
+                >
+                  Familiar
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {familyEnabled && contractType === "familiar" ? (
+            <FamilyRegistrationWizard
+              onBackToTypeChoice={() => form.setValue("contractType", "individual")}
+            />
+          ) : (
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <FormField
@@ -458,7 +465,7 @@ const Cadastro = () => {
                       />
                     </FormControl>
                     <p className="text-xs text-muted-foreground">
-                      No plano familiar, o CPF identifica o responsável financeiro. Não é exibido publicamente.
+                      CPF/CNPJ de cobrança individual. Não é exibido publicamente.
                     </p>
                     <FormMessage />
                   </FormItem>
@@ -493,135 +500,6 @@ const Cadastro = () => {
                   </FormItem>
                 )}
               />
-
-              {familyEnabled ? (
-                <FormField
-                  control={form.control}
-                  name="contractType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Tipo de vínculo</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="individual">Individual</SelectItem>
-                          <SelectItem value="familiar">Familiar</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              ) : null}
-
-              {familyEnabled && contractType === "familiar" ? (
-                <>
-                  <FormField
-                    control={form.control}
-                    name="familyMode"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Família</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="create">Criar nova família</SelectItem>
-                            <SelectItem value="join">Entrar em família existente</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {familyMode === "create" ? (
-                    <>
-                      <FormField
-                        control={form.control}
-                        name="familyName"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Nome do grupo familiar</FormLabel>
-                            <FormControl>
-                              <Input placeholder="Ex.: Família Silva" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="financialResponsibleName"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Responsável financeiro</FormLabel>
-                            <FormControl>
-                              <Input placeholder="Nome do responsável" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="estimatedMemberCount"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Qtd. estimada de integrantes</FormLabel>
-                            <FormControl>
-                              <Input inputMode="numeric" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </>
-                  ) : (
-                    <FormField
-                      control={form.control}
-                      name="familyInviteCode"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Código familiar</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="Informado pelo responsável"
-                              value={field.value}
-                              onChange={(e) => field.onChange(e.target.value.toUpperCase())}
-                            />
-                          </FormControl>
-                          <p className="text-xs text-muted-foreground">
-                            O vínculo fica pendente até o administrador confirmar.
-                          </p>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  )}
-
-                  <FormField
-                    control={form.control}
-                    name="familyRelationship"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Parentesco</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Ex.: pai, filho, mãe" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </>
-              ) : null}
 
               <FormField
                 control={form.control}
@@ -827,6 +705,7 @@ const Cadastro = () => {
               </Button>
             </form>
           </Form>
+          )}
 
           <p className="mt-6 text-sm text-muted-foreground text-center">
             Já tem conta?{" "}

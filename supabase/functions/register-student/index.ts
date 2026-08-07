@@ -7,12 +7,27 @@ import { dispatchRegistrationWhatsApp } from "../_shared/registration-whatsapp.t
 import { logSafeError, sanitizeLogError } from "../_shared/sanitize-log.ts";
 import { validateStudentBirthFields } from "../_shared/student-age.ts";
 
+type FamilyWizardMember = {
+  full_name?: string;
+  birth_date?: string;
+  training_days?: number | null;
+  belt?: string | null;
+  degrees?: number | null;
+  relationship?: string | null;
+  guardian_name?: string | null;
+  notes?: string | null;
+  existing_student_id?: string | null;
+};
+
 type RegisterBody = {
+  action?: string;
+  query?: string;
   full_name?: string;
   whatsapp?: string;
   password?: string;
   academy_id?: string;
-  belt?: string;
+  belt?: string | null;
+  degrees?: number | null;
   billing_tax_id?: string | null;
   plan_id?: string;
   birth_date?: string;
@@ -28,6 +43,9 @@ type RegisterBody = {
   financial_responsible_name?: string | null;
   financial_responsible_phone?: string | null;
   financial_responsible_email?: string | null;
+  responsible_weekly_frequency?: number | null;
+  responsible_trains?: boolean | null;
+  members?: FamilyWizardMember[] | null;
 };
 
 type RegistrationState = "available" | "complete" | "partial";
@@ -96,11 +114,59 @@ Deno.serve(async (req) => {
 
   try {
     const body = (await req.json()) as RegisterBody;
+    const action = String(body.action ?? "register").trim() || "register";
+    const academyIdEarly = String(body.academy_id ?? "").trim();
+
+    if (action === "search_students") {
+      const query = String(body.query ?? "").trim();
+      if (!academyIdEarly) {
+        return new Response(JSON.stringify({ error: "Selecione uma academia." }), {
+          status: 400,
+          headers,
+        });
+      }
+      const supabaseSearch = createServiceClient();
+      const { data, error } = await supabaseSearch.rpc("search_academy_students_for_family", {
+        _academy_id: academyIdEarly,
+        _query: query,
+        _limit: 10,
+      });
+      if (error) throw new Error(error.message);
+      const rows = (data ?? []).map((row: {
+        id: string;
+        full_name: string;
+        birth_date?: string | null;
+        whatsapp: string;
+        email: string | null;
+        belt?: string | null;
+        degrees?: number | null;
+        status: string;
+      }) => {
+        const digits = String(row.whatsapp ?? "").replace(/\D/g, "");
+        const email = String(row.email ?? "");
+        return {
+          id: row.id,
+          full_name: row.full_name,
+          birth_date: row.birth_date ?? null,
+          whatsapp_masked: digits.length >= 4 ? `*******${digits.slice(-4)}` : "—",
+          email_masked: email.includes("@")
+            ? `${email.slice(0, 2)}***@${email.split("@")[1]}`
+            : email || null,
+          belt: row.belt ?? null,
+          degrees: row.degrees ?? null,
+          status: row.status,
+        };
+      });
+      return new Response(JSON.stringify({ students: rows }), { headers });
+    }
+
     const fullName = String(body.full_name ?? "").trim();
     const whatsapp = normalizeWhatsapp(String(body.whatsapp ?? ""));
     const password = String(body.password ?? "");
-    const academyId = String(body.academy_id ?? "");
+    const academyId = academyIdEarly;
     const belt = String(body.belt ?? "Branca").trim() || "Branca";
+    const degrees =
+      body.degrees == null || body.degrees === undefined ? 0 : Number(body.degrees);
     const rawTaxId = body.billing_tax_id == null ? "" : String(body.billing_tax_id);
     const billingTaxId = rawTaxId ? normalizeTaxId(rawTaxId) : "";
     const planId = String(body.plan_id ?? "").trim();
@@ -131,6 +197,13 @@ Deno.serve(async (req) => {
     const financialResponsibleEmail = body.financial_responsible_email
       ? String(body.financial_responsible_email).trim()
       : null;
+    const responsibleWeeklyFrequency =
+      body.responsible_weekly_frequency == null
+        ? null
+        : Number(body.responsible_weekly_frequency);
+    const responsibleTrains = body.responsible_trains !== false;
+    const wizardMembers = Array.isArray(body.members) ? body.members : [];
+    const isFamilyWizard = contractType === "familiar" && familyMode === "wizard";
     const joiningFamily = contractType === "familiar" && familyMode === "join";
 
     if (!/^\d{11}$/.test(whatsapp)) {
@@ -162,17 +235,40 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (!joiningFamily && !isValidTaxId(billingTaxId)) {
-      return new Response(
-        JSON.stringify({ error: "CPF ou CNPJ inválido. Informe 11 dígitos (CPF) ou 14 dígitos (CNPJ)." }),
-        { status: 400, headers },
-      );
+    if (isFamilyWizard || (!joiningFamily && !isValidTaxId(billingTaxId))) {
+      if (!isValidTaxId(billingTaxId)) {
+        return new Response(
+          JSON.stringify({
+            error: "CPF ou CNPJ inválido. Informe 11 dígitos (CPF) ou 14 dígitos (CNPJ).",
+          }),
+          { status: 400, headers },
+        );
+      }
     }
     if (joiningFamily && billingTaxId && !isValidTaxId(billingTaxId)) {
       return new Response(JSON.stringify({ error: "CPF ou CNPJ inválido." }), {
         status: 400,
         headers,
       });
+    }
+
+    if (isFamilyWizard) {
+      if (wizardMembers.length < 1) {
+        return new Response(
+          JSON.stringify({
+            error: responsibleTrains
+              ? "Inclua ao menos um integrante além do responsável."
+              : "Quando o responsável não treina, adicione ao menos um integrante.",
+          }),
+          { status: 400, headers },
+        );
+      }
+      if (responsibleTrains && (degrees < 0 || degrees > 4 || !Number.isInteger(degrees))) {
+        return new Response(
+          JSON.stringify({ error: "Quantidade de graus do responsável inválida (0 a 4)." }),
+          { status: 400, headers },
+        );
+      }
     }
 
     if (!academyId) {
@@ -292,6 +388,81 @@ Deno.serve(async (req) => {
       }
 
       createdUserId = newUser.user.id;
+
+      if (isFamilyWizard) {
+        const { data: wizardResult, error: wizardError } = await supabase.rpc(
+          "register_family_wizard_atomic",
+          {
+            _user_id: createdUserId,
+            _academy_id: academyId,
+            _full_name: fullName,
+            _whatsapp: whatsapp,
+            _belt: responsibleTrains ? belt : "Branca",
+            _degrees: responsibleTrains ? degrees : 0,
+            _tax_id: billingTaxId || null,
+            _plan_id: planId,
+            _birth_date: birthDate,
+            _guardian_name: guardianName || null,
+            _payment_method: paymentMethod,
+            _installments: Number.isFinite(installments as number) ? installments : null,
+            _family_name: familyName,
+            _financial_responsible_email: financialResponsibleEmail,
+            _responsible_weekly_frequency: responsibleTrains &&
+                Number.isFinite(responsibleWeeklyFrequency as number)
+              ? responsibleWeeklyFrequency
+              : null,
+            _responsible_trains: responsibleTrains,
+            _members: wizardMembers,
+          },
+        );
+
+        if (wizardError) {
+          logSafeError(
+            "register-student family wizard RPC failed",
+            { userId: createdUserId, whatsapp, academyId },
+            wizardError,
+          );
+          throw wizardError;
+        }
+
+        const result = wizardResult as {
+          responsible_student_id?: string | null;
+          family_group_id?: string;
+          member_count?: number;
+          member_student_ids?: string[];
+        } | null;
+
+        if (!result?.family_group_id || !result.member_count) {
+          throw new Error("Não foi possível criar o cadastro familiar");
+        }
+
+        const notifyStudentId =
+          result.responsible_student_id ||
+          (Array.isArray(result.member_student_ids) ? result.member_student_ids[0] : null) ||
+          null;
+
+        const whatsappInfo = await dispatchRegistrationWhatsApp({
+          supabase,
+          academyId,
+          studentId: notifyStudentId,
+          fullName,
+          whatsapp,
+        });
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message:
+              "Cadastro familiar enviado. Aguarde a academia confirmar o pagamento. Nenhum boleto é gerado no cadastro.",
+            email,
+            student_id: result.responsible_student_id ?? null,
+            family_group_id: result.family_group_id,
+            member_count: result.member_count,
+            whatsapp: whatsappInfo,
+          }),
+          { headers },
+        );
+      }
 
       const { data: studentId, error: rpcError } = await supabase.rpc(
         "complete_student_registration_atomic",
