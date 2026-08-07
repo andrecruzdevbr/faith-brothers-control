@@ -1,7 +1,7 @@
 import { corsHeaders, handleOptions } from "../_shared/cors.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { getEnv, getEnvBoolean } from "../_shared/env.ts";
-import { processPendingMessages } from "../_shared/whatsapp.ts";
+import { processPendingMessages, processWhatsAppMessageById } from "../_shared/whatsapp.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleOptions(req);
@@ -26,10 +26,35 @@ Deno.serve(async (req) => {
       );
     }
 
-    const supabase = createServiceClient();
-    const processed = await processPendingMessages(supabase, 50);
+    let messageId: string | null = null;
+    if (req.method === "POST") {
+      try {
+        const body = (await req.json()) as { messageId?: string };
+        if (typeof body.messageId === "string" && body.messageId.trim()) {
+          messageId = body.messageId.trim();
+        }
+      } catch {
+        messageId = null;
+      }
+    }
 
-    return new Response(JSON.stringify({ success: true, processed }), { headers });
+    const supabase = createServiceClient();
+
+    if (messageId) {
+      const result = await processWhatsAppMessageById(supabase, messageId);
+      return new Response(
+        JSON.stringify({
+          success: result.status === "sent" || result.error === "already_sent",
+          mode: "single",
+          messageId,
+          ...result,
+        }),
+        { headers },
+      );
+    }
+
+    const processed = await processPendingMessages(supabase, 50);
+    return new Response(JSON.stringify({ success: true, mode: "batch", processed }), { headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return new Response(JSON.stringify({ error: message }), { status: 500, headers });

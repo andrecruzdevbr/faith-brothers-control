@@ -14,7 +14,8 @@ export type WhatsAppMessageType =
   | "attendance"
   | "otp"
   | "payment_confirmation"
-  | "birthday";
+  | "birthday"
+  | "contract_approved";
 
 const EVOLUTION_FETCH_TIMEOUT_MS = 15_000;
 const STUCK_PROCESSING_MS = 2 * 60_000;
@@ -47,6 +48,8 @@ export interface QueueWhatsAppParams {
   academyId?: string | null;
   studentId?: string | null;
   billingId?: string | null;
+  /** Stable key: messageType + contract + event — prevents duplicate queue/send */
+  idempotencyKey?: string | null;
   sendImmediately?: boolean;
 }
 
@@ -156,6 +159,22 @@ export async function sendViaEvolution(
 }
 
 export async function queueWhatsApp(params: QueueWhatsAppParams): Promise<QueueWhatsAppResult> {
+  if (params.idempotencyKey) {
+    const { data: byKey } = await params.supabase
+      .from("whatsapp_messages")
+      .select("id, status")
+      .eq("idempotency_key", params.idempotencyKey)
+      .maybeSingle();
+    if (byKey) {
+      return {
+        messageId: byKey.id,
+        sent: byKey.status === "sent",
+        skipped: true,
+        reason: byKey.status === "sent" ? "already_sent" : "already_queued",
+      };
+    }
+  }
+
   // Idempotency: one active/sent registration message per student.
   if (params.studentId && params.messageType === "registration") {
     const { data: existing } = await params.supabase
@@ -187,13 +206,32 @@ export async function queueWhatsApp(params: QueueWhatsAppParams): Promise<QueueW
       recipient: toEvolutionNumber(params.recipient),
       message_type: params.messageType,
       body: params.body,
+      idempotency_key: params.idempotencyKey ?? null,
       status: params.sendImmediately ? "processing" : "pending",
       updated_at: new Date().toISOString(),
     })
     .select("id")
     .single();
 
-  if (error || !row) throw new Error(`Failed to queue WhatsApp: ${error?.message ?? "unknown"}`);
+  if (error || !row) {
+    // Concurrent insert with same idempotency key
+    if (params.idempotencyKey && error?.message?.toLowerCase().includes("duplicate")) {
+      const { data: again } = await params.supabase
+        .from("whatsapp_messages")
+        .select("id, status")
+        .eq("idempotency_key", params.idempotencyKey)
+        .maybeSingle();
+      if (again) {
+        return {
+          messageId: again.id,
+          sent: again.status === "sent",
+          skipped: true,
+          reason: "already_queued",
+        };
+      }
+    }
+    throw new Error(`Failed to queue WhatsApp: ${error?.message ?? "unknown"}`);
+  }
 
   if (params.sendImmediately !== false) {
     try {
@@ -248,6 +286,84 @@ export async function queueWhatsApp(params: QueueWhatsAppParams): Promise<QueueW
   }
 
   return { messageId: row.id, sent: false };
+}
+
+export async function processWhatsAppMessageById(
+  supabase: SupabaseClient,
+  messageId: string,
+): Promise<{ processed: boolean; status: string; externalId?: string | null; error?: string }> {
+  const { data: msg, error } = await supabase
+    .from("whatsapp_messages")
+    .select("*")
+    .eq("id", messageId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!msg) throw new Error(`WhatsApp message not found: ${messageId}`);
+  if (msg.status === "sent") {
+    return {
+      processed: false,
+      status: "sent",
+      externalId: msg.external_id ?? null,
+      error: "already_sent",
+    };
+  }
+
+  await supabase
+    .from("whatsapp_messages")
+    .update({
+      status: "processing",
+      error_message: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", messageId);
+
+  try {
+    const result = await sendViaEvolution(msg.recipient, msg.body);
+
+    if (result.skipped) {
+      await supabase
+        .from("whatsapp_messages")
+        .update({
+          status: "pending",
+          error_message: result.reason ?? "WHATSAPP_SEND_ENABLED=false",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", messageId);
+      return { processed: false, status: "pending", error: result.reason };
+    }
+
+    await supabase
+      .from("whatsapp_messages")
+      .update({
+        status: result.ok ? "sent" : "failed",
+        attempts: (msg.attempts ?? 0) + 1,
+        external_id: result.externalId ?? null,
+        error_message: result.error ?? null,
+        sent_at: result.ok ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", messageId);
+
+    return {
+      processed: true,
+      status: result.ok ? "sent" : "failed",
+      externalId: result.externalId ?? null,
+      error: result.error,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "WhatsApp send failed";
+    await supabase
+      .from("whatsapp_messages")
+      .update({
+        status: "failed",
+        attempts: (msg.attempts ?? 0) + 1,
+        error_message: message.slice(0, 300),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", messageId);
+    return { processed: true, status: "failed", error: message };
+  }
 }
 
 export async function processPendingMessages(supabase: SupabaseClient, limit = 20): Promise<number> {

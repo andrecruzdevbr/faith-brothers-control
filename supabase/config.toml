@@ -19,8 +19,8 @@ verify_jwt = false
 [functions.seed-admin-users]
 verify_jwt = false
 
-[functions.register-student]
-verify_jwt = false
+[functions.notify-contract-approved]
+verify_jwt = true
 
 [functions.send-birthday-whatsapp]
 verify_jwt = false

@@ -9,6 +9,34 @@ export function buildRegistrationReceivedMessage(fullName: string): string {
   ].join("\n");
 }
 
+export function buildContractApprovedMessage(params: {
+  fullName: string;
+  planName?: string | null;
+  startsOn?: string | null;
+  endsOn?: string | null;
+  isFamily?: boolean;
+}): string {
+  const name = params.fullName.trim() || "aluno";
+  const plan = (params.planName ?? "").trim() || "seu pacote";
+  const lines = [
+    `Olá, ${name}! Seu pagamento do ${plan} foi confirmado pela academia.`,
+    "",
+  ];
+  if (params.isFamily) {
+    lines.push("A cobertura está vinculada ao contrato familiar.");
+  }
+  if (params.startsOn && params.endsOn) {
+    lines.push(`Período liberado: ${params.startsOn} até ${params.endsOn}.`);
+  }
+  lines.push("", "Faith Brothers Control 🥋");
+  return lines.join("\n");
+}
+
+export function buildContractApprovedIdempotencyKey(contractId: string, event = "payment_confirmed"): string {
+  return `contract_approved:${contractId}:${event}`;
+}
+
+
 export function buildBirthdayMessage(fullName: string, academyName?: string | null): string {
   const name = (fullName.trim().split(/\s+/)[0] || "aluno").trim();
   const academy = (academyName ?? "").trim() || "Faith Brothers BJJ";

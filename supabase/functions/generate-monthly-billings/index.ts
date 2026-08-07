@@ -404,10 +404,10 @@ Deno.serve(async (req) => {
 
       // Prepaid / family coverage: never create Asaas boleto for covered months
       try {
-        const { data: skipReason } = await supabase.rpc("prepaid_cron_skip_reason" as never, {
+        const { data: skipReason } = await supabase.rpc("prepaid_cron_skip_reason", {
           _student_id: student.id,
           _reference_month: period.referenceMonth,
-        } as never);
+        });
         if (typeof skipReason === "string" && skipReason.length > 0) {
           processed.push({
             studentId: student.id,

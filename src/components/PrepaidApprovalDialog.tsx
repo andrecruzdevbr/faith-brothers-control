@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
-import { formatCurrency } from "@/lib/api";
+import { formatCurrency, callEdgeFunction } from "@/lib/api";
 import {
   PREPAID_PAYMENT_METHOD_LABELS,
   buildCoverageMonths,
@@ -19,6 +19,7 @@ import {
   type PrepaidPaymentMethod,
 } from "@/lib/prepaid-contracts";
 import { useToast } from "@/hooks/use-toast";
+import type { Tables } from "@/integrations/supabase/types";
 
 export type PrepaidApprovalStudent = {
   id: string;
@@ -41,16 +42,17 @@ export type PrepaidApprovalStudent = {
   } | null;
 };
 
-type FamilyGroup = {
-  id: string;
-  name: string;
-  invite_code: string;
-  financial_responsible_name: string;
-  financial_responsible_tax_id: string | null;
-  financial_responsible_phone: string | null;
-  financial_responsible_email: string | null;
-  financial_responsible_student_id: string | null;
-};
+type FamilyGroup = Pick<
+  Tables<"family_groups">,
+  | "id"
+  | "name"
+  | "invite_code"
+  | "financial_responsible_name"
+  | "financial_responsible_tax_id"
+  | "financial_responsible_phone"
+  | "financial_responsible_email"
+  | "financial_responsible_student_id"
+>;
 
 type FamilyMemberRow = {
   id: string;
@@ -112,7 +114,7 @@ export function PrepaidApprovalDialog({ student, onDone }: Props) {
       }
 
       const { data: group, error: groupError } = await supabase
-        .from("family_groups" as never)
+        .from("family_groups")
         .select(
           "id, name, invite_code, financial_responsible_name, financial_responsible_tax_id, financial_responsible_phone, financial_responsible_email, financial_responsible_student_id",
         )
@@ -126,7 +128,7 @@ export function PrepaidApprovalDialog({ student, onDone }: Props) {
       }
 
       const { data: memberRows, error: membersError } = await supabase
-        .from("family_members" as never)
+        .from("family_members")
         .select(
           "id, student_id, relationship, status, students(id, full_name, status, plan_id, plans(name, training_days_per_week))",
         )
@@ -139,7 +141,7 @@ export function PrepaidApprovalDialog({ student, onDone }: Props) {
       }
 
       if (!cancelled) {
-        setFamily(group as unknown as FamilyGroup);
+        setFamily(group as FamilyGroup | null);
         const list = (memberRows ?? []) as unknown as FamilyMemberRow[];
         setMembers(list);
         setSelectedMemberIds(list.map((m) => m.student_id));
@@ -196,7 +198,7 @@ export function PrepaidApprovalDialog({ student, onDone }: Props) {
         if (selectedMemberIds.length < 1) {
           throw new Error("Selecione ao menos um integrante coberto");
         }
-        const { error } = await supabase.rpc("confirm_family_prepaid_payment" as never, {
+        const { error } = await supabase.rpc("confirm_family_prepaid_payment", {
           _family_group_id: family.id,
           _plan_id: student.plan_id,
           _starts_on: startsOn,
@@ -205,14 +207,33 @@ export function PrepaidApprovalDialog({ student, onDone }: Props) {
           _member_student_ids: selectedMemberIds,
           _total_amount: installmentPreview.total,
           _confirmation_meta: meta,
-        } as never);
+        });
         if (error) throw error;
+        const { data: contractRow } = await supabase
+          .from("student_contracts")
+          .select("id")
+          .eq("family_group_id", family.id)
+          .eq("payment_status", "pago")
+          .eq("contract_status", "ativo")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (contractRow?.id) {
+          try {
+            await callEdgeFunction("notify-contract-approved", {
+              contract_id: contractRow.id,
+              send_immediately: false,
+            });
+          } catch {
+            // WA queue is best-effort; payment already confirmed
+          }
+        }
         toast({
           title: "Família liberada",
           description: "Pagamento confirmado. Meses liberados para os integrantes selecionados.",
         });
       } else {
-        const { error } = await supabase.rpc("confirm_individual_prepaid_payment" as never, {
+        const { data: contractId, error } = await supabase.rpc("confirm_individual_prepaid_payment", {
           _student_id: student.id,
           _plan_id: student.plan_id,
           _starts_on: startsOn,
@@ -220,8 +241,18 @@ export function PrepaidApprovalDialog({ student, onDone }: Props) {
           _installments: installmentPreview.installments,
           _total_amount: installmentPreview.total,
           _confirmation_meta: meta,
-        } as never);
+        });
         if (error) throw error;
+        if (contractId) {
+          try {
+            await callEdgeFunction("notify-contract-approved", {
+              contract_id: contractId,
+              send_immediately: false,
+            });
+          } catch {
+            // WA queue is best-effort; payment already confirmed
+          }
+        }
         toast({
           title: "Pagamento aprovado",
           description: "Meses do pacote liberados. Nenhum boleto Asaas será gerado nesses meses.",

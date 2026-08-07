@@ -20,7 +20,7 @@ export function StudentContractOverview({ studentId }: Props) {
     enabled: !!studentId,
     queryFn: async () => {
       const { data: months, error: monthsError } = await supabase
-        .from("student_contract_months" as never)
+        .from("student_contract_months")
         .select("id, reference_month, status, source, contract_id, paid_at")
         .eq("student_id", studentId)
         .order("reference_month", { ascending: true });
@@ -56,7 +56,7 @@ export function StudentContractOverview({ studentId }: Props) {
 
       if (contractId) {
         const { data: c } = await supabase
-          .from("student_contracts" as never)
+          .from("student_contracts")
           .select(
             "id, starts_on, ends_on, weekly_frequency, total_amount, payment_method, installments, contract_status, payment_status, family_group_id, student_id, plans(name)",
           )
@@ -73,7 +73,7 @@ export function StudentContractOverview({ studentId }: Props) {
       let relationship: string | null = null;
 
       const { data: fm } = await supabase
-        .from("family_members" as never)
+        .from("family_members")
         .select(
           "relationship, status, family_groups(name, financial_responsible_name, financial_responsible_tax_id)",
         )
