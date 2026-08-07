@@ -13,14 +13,14 @@
 |------|--------|
 | Migration aplicada | **SIM** |
 | Edge publicada | **SIM** (`register-student`) |
-| GitHub atualizado | **SIM** (após push) |
-| Vercel atualizado | *aguardar deploy pós-push* |
+| GitHub atualizado | **SIM** (`66e17ed` → `origin/main`) |
+| Vercel atualizado | **SIM** (HTTP 200; bundle `index-REx5heb2.js`) |
 | Fluxo individual preservado | **SIM** |
 | Responsável não praticante tratado corretamente | **SIM** |
 | Cada praticante conta como aluno | **SIM** |
-| Fluxo familiar disponível em produção | **SIM** (feature flag + migration + edge) |
+| Fluxo familiar disponível em produção | **SIM** (`family_plans_enabled=true` + migration + edge + UI) |
 | Pode testar primeiro cadastro familiar real | **SIM** (sem confirmar pagamento) |
-| Pode confirmar primeiro pagamento familiar real | **NÃO ainda** — só após smoke controlado e liberação explícita |
+| Pode confirmar primeiro pagamento familiar real | **NÃO ainda** — só após smoke controlado A/B e liberação explícita |
 
 ---
 
@@ -98,15 +98,25 @@ Somente esta migration.
 
 ---
 
-## 7. Smoke (sem pagamento real / sem WhatsApp real / sem confirmação admin)
+## 7. Deploy frontend
+
+- Push: `e25216f..66e17ed` → `main`
+- `https://faith-brothers-control.vercel.app` → HTTP **200**
+- `/cadastro` → HTTP **200**
+- Asset live: `/assets/index-REx5heb2.js` (alinhado ao build local desta entrega)
+- Feature flag: `family_plans_enabled = true`, `prepaid_contracts_enabled = true`
+
+## 8. Smoke (sem pagamento real / sem WhatsApp real / sem confirmação admin)
 
 Validação estrutural em produção:
 
 - 3 alunos ativos preservados; 0 family_groups; 0 contratos pagos
-- RPCs e colunas OK
-- Fluxo UI: Cadastro → Familiar → 5 etapas (código + build)
+- RPCs `SECURITY DEFINER` + `search_path=public` OK
+- Colunas `notes` / `requested_weekly_frequency` OK
+- Unit tests cenários A/B (helpers): OK
+- **Não** executado cadastro real neste go-live (evita criar auth users e enfileirar WhatsApp)
 
-**Cenários A/B de cadastro real** ficam liberados para o primeiro teste controlado em produção **sem** clicar em “Pagamento aprovado e família liberada” até nova autorização.
+**Cenários A/B de cadastro real** liberados para o primeiro teste controlado em produção **sem** clicar em “Pagamento aprovado e família liberada” até nova autorização.
 
 | Cenário | Esperado |
 |---------|----------|
