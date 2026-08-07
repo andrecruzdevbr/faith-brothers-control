@@ -422,7 +422,11 @@ Deno.serve(async (req) => {
             { userId: createdUserId, whatsapp, academyId },
             wizardError,
           );
-          throw wizardError;
+          const rpcMessage =
+            wizardError && typeof wizardError === "object" && "message" in wizardError
+              ? String((wizardError as { message: unknown }).message ?? "Falha no cadastro familiar")
+              : "Falha no cadastro familiar";
+          throw new Error(rpcMessage);
         }
 
         const result = wizardResult as {
@@ -535,7 +539,12 @@ Deno.serve(async (req) => {
         }
       }
 
-      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      const message =
+        error instanceof Error
+          ? error.message
+          : error && typeof error === "object" && "message" in error && typeof (error as { message: unknown }).message === "string"
+            ? (error as { message: string }).message
+            : "Erro desconhecido";
       const mapped = mapRegisterStudentRpcError(message);
       return new Response(JSON.stringify({ error: mapped.error }), { status: mapped.status, headers });
     }

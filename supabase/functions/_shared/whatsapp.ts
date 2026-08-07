@@ -5,6 +5,7 @@ import {
   resolveEvolutionConfig,
   type EvolutionConfig,
 } from "./evolution-config.ts";
+import { formatEvolutionApiError } from "./evolution-error.ts";
 
 export type WhatsAppMessageType =
   | "general"
@@ -135,15 +136,12 @@ export async function sendViaEvolution(
         return { ok: true, externalId };
       }
 
-      const detail =
-        (typeof data?.message === "string" && data.message) ||
-        (typeof data?.error === "string" && data.error) ||
-        (typeof data?.response?.message === "string" && data.response.message) ||
-        (Array.isArray(data?.response?.message)
-          ? data.response.message.map((m: unknown) => String(m)).join("; ")
-          : null) ||
-        (data ? JSON.stringify(data).slice(0, 180) : "send failed");
-      lastError = `Evolution API [${response.status}] instance=${config.instance}: ${String(detail).slice(0, 180)}`;
+      lastError = formatEvolutionApiError({
+        httpStatus: response.status,
+        instance: config.instance,
+        number,
+        body: data,
+      });
 
       // Only fall through payload variants on 400; other statuses abort.
       if (response.status !== 400) {

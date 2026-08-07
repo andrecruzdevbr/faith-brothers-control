@@ -1,5 +1,5 @@
 import { corsHeaders, handleOptions } from "../_shared/cors.ts";
-import { createServiceClient } from "../_shared/supabase.ts";
+import { createServiceClient, requireAdmin } from "../_shared/supabase.ts";
 import { getEnv, getEnvBoolean } from "../_shared/env.ts";
 import { processPendingMessages, processWhatsAppMessageById } from "../_shared/whatsapp.ts";
 
@@ -8,9 +8,28 @@ Deno.serve(async (req) => {
   const headers = { ...corsHeaders(req), "Content-Type": "application/json" };
 
   try {
+    let messageId: string | null = null;
+    if (req.method === "POST") {
+      try {
+        const body = (await req.json()) as { messageId?: string };
+        if (typeof body.messageId === "string" && body.messageId.trim()) {
+          messageId = body.messageId.trim();
+        }
+      } catch {
+        messageId = null;
+      }
+    }
+
     const cronSecret = getEnv("BILLING_CRON_SECRET");
-    if (req.headers.get("x-cron-secret") !== cronSecret) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers });
+    const isCronCall = req.headers.get("x-cron-secret") === cronSecret;
+
+    // Batch remains cron-only. Single messageId may use admin JWT (controlled ops).
+    if (!isCronCall) {
+      if (!messageId) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers });
+      }
+      const authHeader = req.headers.get("Authorization") ?? "";
+      await requireAdmin(authHeader);
     }
 
     const sendEnabled = getEnvBoolean("WHATSAPP_SEND_ENABLED", false);
@@ -24,18 +43,6 @@ Deno.serve(async (req) => {
         }),
         { headers },
       );
-    }
-
-    let messageId: string | null = null;
-    if (req.method === "POST") {
-      try {
-        const body = (await req.json()) as { messageId?: string };
-        if (typeof body.messageId === "string" && body.messageId.trim()) {
-          messageId = body.messageId.trim();
-        }
-      } catch {
-        messageId = null;
-      }
     }
 
     const supabase = createServiceClient();
@@ -57,6 +64,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ success: true, mode: "batch", processed }), { headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(JSON.stringify({ error: message }), { status: 500, headers });
+    const status = message === "Unauthorized" || message === "Forbidden" ? 401 : 500;
+    return new Response(JSON.stringify({ error: message }), { status, headers });
   }
 });
