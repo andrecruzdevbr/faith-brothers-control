@@ -95,24 +95,44 @@ export function useMyBillings() {
   });
 }
 
-export function useClasses() {
+export function useClasses(options?: { includeInactive?: boolean }) {
   const { data: academyId } = useAcademyId();
+  const includeInactive = options?.includeInactive === true;
   return useQuery({
-    queryKey: ["classes", academyId],
+    queryKey: ["classes", academyId, includeInactive ? "all" : "active"],
     enabled: !!academyId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("classes").select("*").eq("academy_id", academyId!).eq("active", true).order("name");
-      if (error) {
-        const { data: fallback } = await supabase.from("plans").select("id, name, training_days_per_week, academy_id").eq("academy_id", academyId!).eq("active", true);
-        return (fallback ?? []).map((p) => ({
-          id: p.id,
-          name: p.name,
-          schedule_days: `${p.training_days_per_week ?? 0}x por semana`,
-          schedule_time: "Consulte a academia",
-          student_count: 0,
-        }));
+      let query = supabase
+        .from("classes")
+        .select("*")
+        .eq("academy_id", academyId!)
+        .not("day_of_week", "is", null)
+        .not("start_time", "is", null)
+        .order("day_of_week", { ascending: true })
+        .order("start_time", { ascending: true })
+        .order("sort_order", { ascending: true });
+      if (!includeInactive) {
+        query = query.eq("active", true);
       }
+      const { data, error } = await query;
+      if (error) throw error;
       return data ?? [];
+    },
+  });
+}
+
+export function usePublicClassSchedules(academyId?: string | null) {
+  return useQuery({
+    queryKey: ["public-class-schedules", academyId ?? "all"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("get_public_class_schedules", {
+        _academy_id: academyId || null,
+      });
+      if (error) throw error;
+      return (data ?? []).map((row) => ({
+        ...row,
+        notes: row.notes ?? null,
+      }));
     },
   });
 }

@@ -386,34 +386,55 @@ export type Database = {
         Row: {
           academy_id: string
           active: boolean
+          audience: string | null
           created_at: string
+          day_of_week: number | null
           id: string
+          level: string | null
+          modality: string | null
           name: string
+          notes: string | null
           plan_id: string | null
           schedule_days: string
           schedule_time: string
+          sort_order: number
+          start_time: string | null
           updated_at: string
         }
         Insert: {
           academy_id: string
           active?: boolean
+          audience?: string | null
           created_at?: string
+          day_of_week?: number | null
           id?: string
+          level?: string | null
+          modality?: string | null
           name: string
+          notes?: string | null
           plan_id?: string | null
           schedule_days?: string
           schedule_time?: string
+          sort_order?: number
+          start_time?: string | null
           updated_at?: string
         }
         Update: {
           academy_id?: string
           active?: boolean
+          audience?: string | null
           created_at?: string
+          day_of_week?: number | null
           id?: string
+          level?: string | null
+          modality?: string | null
           name?: string
+          notes?: string | null
           plan_id?: string | null
           schedule_days?: string
           schedule_time?: string
+          sort_order?: number
+          start_time?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -1543,6 +1564,22 @@ export type Database = {
           plan_kind: string
           reference_monthly_price: number
           training_days_per_week: number
+        }[]
+      }
+      get_public_class_schedules: {
+        Args: { _academy_id?: string | null }
+        Returns: {
+          academy_id: string
+          active: boolean
+          audience: string
+          day_of_week: number
+          id: string
+          level: string | null
+          modality: string
+          name: string
+          notes: string | null
+          sort_order: number
+          start_time: string
         }[]
       }
       get_student_billing_tax_id_masked: {

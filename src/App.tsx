@@ -26,6 +26,7 @@ const MinhaPresenca = lazy(() => import("./pages/MinhaPresenca"));
 const MinhaGraduacao = lazy(() => import("./pages/MinhaGraduacao"));
 const MeuFinanceiro = lazy(() => import("./pages/MeuFinanceiro"));
 const MeuPerfil = lazy(() => import("./pages/MeuPerfil"));
+const MinhasTurmas = lazy(() => import("./pages/MinhasTurmas"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -97,6 +98,7 @@ const App = () => (
                   <Route path="/minha-graduacao" element={<MinhaGraduacao />} />
                   <Route path="/meu-ranking" element={<Ranking />} />
                   <Route path="/meu-financeiro" element={<MeuFinanceiro />} />
+                  <Route path="/minhas-turmas" element={<MinhasTurmas />} />
                   <Route path="/meu-perfil" element={<MeuPerfil />} />
                 </Route>
               </Route>

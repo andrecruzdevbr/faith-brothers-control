@@ -13,7 +13,7 @@ import {
 const staffMenuItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Alunos", url: "/alunos", icon: Users },
-  { title: "Turmas", url: "/turmas", icon: CalendarDays },
+  { title: "Turmas e Horários", url: "/turmas", icon: CalendarDays },
   { title: "Presenças", url: "/presencas", icon: ClipboardCheck },
   { title: "Graduação", url: "/graduacao", icon: Award },
   { title: "Ranking", url: "/ranking", icon: Trophy },
@@ -27,7 +27,7 @@ const adminOnlyMenuItems = [
 ];
 
 const academyLimitedMenuItems = [
-  { title: "Turmas", url: "/turmas", icon: CalendarDays },
+  { title: "Turmas e Horários", url: "/turmas", icon: CalendarDays },
   { title: "Presenças", url: "/presencas", icon: ClipboardCheck },
   { title: "Graduação", url: "/graduacao", icon: Award },
   { title: "Ranking", url: "/ranking", icon: Trophy },
@@ -38,6 +38,7 @@ const alunoMenuItems = [
   { title: "Minhas Presenças", url: "/minha-presenca", icon: ClipboardCheck },
   { title: "Minha Graduação", url: "/minha-graduacao", icon: Award },
   { title: "Meu Ranking", url: "/meu-ranking", icon: Trophy },
+  { title: "Turmas e Horários", url: "/minhas-turmas", icon: CalendarDays },
   { title: "Meus Pagamentos", url: "/meu-financeiro", icon: DollarSign },
   { title: "Meu Perfil", url: "/meu-perfil", icon: UserCircle },
 ];
