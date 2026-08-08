@@ -8,6 +8,10 @@ import {
   parseEnvBoolean,
   resolveEvolutionConfig,
 } from "../../supabase/functions/_shared/evolution-config.ts";
+import {
+  formatEvolutionApiError,
+  maskPhoneForLog,
+} from "../../supabase/functions/_shared/evolution-error.ts";
 
 const LOCAL_ENV = {
   WHATSAPP_PROVIDER: "evolution",
@@ -141,5 +145,64 @@ describe("billing queue respects send gate", () => {
 
     const processedStatus = billingSendAllowed ? "sent_whatsapp" : "queued_whatsapp_send_disabled";
     expect(processedStatus).toBe("queued_whatsapp_send_disabled");
+  });
+});
+
+describe("formatEvolutionApiError", () => {
+  it("masks phone numbers for logs", () => {
+    expect(maskPhoneForLog("5531938941852")).toBe("5531****1852");
+    expect(maskPhoneForLog("31938941852")).toBe("3193****1852");
+  });
+
+  it("preserves exists:false and response.message on HTTP 400 (not only Bad Request)", () => {
+    const formatted = formatEvolutionApiError({
+      httpStatus: 400,
+      instance: "FaithBrothersAcademia",
+      number: "5531938941852",
+      body: {
+        status: 400,
+        error: "Bad Request",
+        response: {
+          message: [
+            {
+              jid: "5531938941852@s.whatsapp.net",
+              exists: false,
+              number: "5531938941852",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(formatted).toContain("Evolution API [400]");
+    expect(formatted).toContain("instance=FaithBrothersAcademia");
+    expect(formatted).toContain("httpStatus=400");
+    expect(formatted).toContain("status=400");
+    expect(formatted).toContain("error=Bad Request");
+    expect(formatted).toContain("exists=false");
+    expect(formatted).toContain("response.message=");
+    expect(formatted).toContain("5531****1852");
+    expect(formatted).not.toContain("5531938941852");
+    expect(formatted).not.toContain("change-me");
+    expect(formatted).not.toContain("apikey");
+    // Must not collapse to bare Bad Request only
+    expect(formatted).not.toBe(
+      "Evolution API [400] instance=FaithBrothersAcademia: Bad Request",
+    );
+  });
+
+  it("redacts API keys if present in Evolution body text", () => {
+    const formatted = formatEvolutionApiError({
+      httpStatus: 401,
+      instance: "FaithBrothersAcademia",
+      number: "5531988645644",
+      body: {
+        status: 401,
+        error: "Unauthorized",
+        message: "Invalid apikey=super-secret-key-value",
+      },
+    });
+    expect(formatted).toContain("httpStatus=401");
+    expect(formatted).not.toContain("super-secret-key-value");
   });
 });
