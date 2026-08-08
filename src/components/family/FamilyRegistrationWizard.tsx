@@ -118,7 +118,11 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
       if (error) {
         toast({ title: "Não foi possível carregar academias", description: error.message, variant: "destructive" });
       } else {
-        setAcademies((data ?? []) as AcademyOption[]);
+        const list = ((data ?? []) as AcademyOption[]).filter((a) => !!a.family_plans_enabled);
+        setAcademies(list);
+        if (list.length === 1) {
+          setAcademyId(list[0].id);
+        }
       }
       setLoadingAcademies(false);
     };
@@ -140,6 +144,7 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
         toast({ title: "Não foi possível carregar planos", description: error.message, variant: "destructive" });
         setPlans([]);
       } else {
+        // Family V2 reuses the academy prepaid/monthly catalog (same price); no separate family SKU required.
         setPlans(
           (data ?? []).map((p) => ({
             id: p.id,

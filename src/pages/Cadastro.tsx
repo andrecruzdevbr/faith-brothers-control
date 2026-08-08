@@ -143,7 +143,8 @@ const Cadastro = () => {
 
   const selectedAcademy = academies.find((a) => a.id === selectedAcademyId);
   const prepaidEnabled = !!selectedAcademy?.prepaid_contracts_enabled;
-  const familyEnabled = !!selectedAcademy?.family_plans_enabled;
+  /** Show Individual|Familiar as soon as any public academy has the flag (do not wait for academy select). */
+  const familyPlansAvailable = academies.some((a) => !!a.family_plans_enabled);
   const selectedPlan = plans.find((p) => p.id === selectedPlanId);
   const machinePlan = isMachineBillingMode(selectedPlan?.billing_mode);
   const requireTaxId = true;
@@ -211,10 +212,18 @@ const Cadastro = () => {
   }, [selectedAcademyId, form, toast]);
 
   useEffect(() => {
-    if (!familyEnabled && contractType === "familiar") {
+    if (!loadingAcademies && !familyPlansAvailable && contractType === "familiar") {
       form.setValue("contractType", "individual");
     }
-  }, [familyEnabled, contractType, form]);
+  }, [loadingAcademies, familyPlansAvailable, contractType, form]);
+
+  useEffect(() => {
+    if (loadingAcademies || academies.length !== 1) return;
+    const only = academies[0];
+    if (!selectedAcademyId && only?.id) {
+      form.setValue("academyId", only.id);
+    }
+  }, [loadingAcademies, academies, selectedAcademyId, form]);
 
   useEffect(() => {
     if (!machinePlan) {
@@ -339,29 +348,36 @@ const Cadastro = () => {
         </section>
 
         <section className="p-8">
-          {familyEnabled ? (
-            <div className="mb-6 space-y-2">
-              <p className="text-sm font-medium">Escolha do plano</p>
-              <div className="grid grid-cols-2 gap-2">
+          {!loadingAcademies && familyPlansAvailable ? (
+            <div className="mb-6 space-y-3">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Tipo de cadastro</p>
+                <p className="text-xs text-muted-foreground">
+                  Escolha se o cadastro é individual ou de um plano familiar.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <Button
                   type="button"
+                  className="h-auto min-h-11 whitespace-normal px-3 py-3 text-sm"
                   variant={contractType === "individual" ? "default" : "outline"}
                   onClick={() => form.setValue("contractType", "individual")}
                 >
-                  Individual
+                  Plano Individual
                 </Button>
                 <Button
                   type="button"
+                  className="h-auto min-h-11 whitespace-normal px-3 py-3 text-sm"
                   variant={contractType === "familiar" ? "default" : "outline"}
                   onClick={() => form.setValue("contractType", "familiar")}
                 >
-                  Familiar
+                  Plano Familiar
                 </Button>
               </div>
             </div>
           ) : null}
 
-          {familyEnabled && contractType === "familiar" ? (
+          {!loadingAcademies && familyPlansAvailable && contractType === "familiar" ? (
             <FamilyRegistrationWizard
               onBackToTypeChoice={() => form.setValue("contractType", "individual")}
             />
