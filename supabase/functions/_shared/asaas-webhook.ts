@@ -124,6 +124,7 @@ async function sendPaymentConfirmation(
       "Obrigado! OSS!",
     ].join("\n"),
     messageType: "payment_confirmation",
+    idempotencyKey: `payment_confirmation:billing:${billing.id}`,
     sendImmediately: true,
   });
 

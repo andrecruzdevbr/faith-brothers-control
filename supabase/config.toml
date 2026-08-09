@@ -19,6 +19,9 @@ verify_jwt = false
 [functions.seed-admin-users]
 verify_jwt = false
 
+[functions.notify-registration-event]
+verify_jwt = true
+
 [functions.notify-contract-approved]
 verify_jwt = true
 

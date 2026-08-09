@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { queueWhatsApp, type QueueWhatsAppResult } from "./whatsapp.ts";
 import {
+  buildRegistrationReceivedIdempotencyKey,
   buildRegistrationReceivedMessage,
   toWhatsAppDispatchInfo,
   type WhatsAppDispatchInfo,
@@ -30,6 +31,9 @@ export async function dispatchRegistrationWhatsApp(params: {
       recipient: params.whatsapp,
       body: buildRegistrationReceivedMessage(params.fullName),
       messageType: "registration",
+      idempotencyKey: studentId
+        ? buildRegistrationReceivedIdempotencyKey(studentId)
+        : undefined,
       sendImmediately: true,
     });
     return toWhatsAppDispatchInfo(queueResult);

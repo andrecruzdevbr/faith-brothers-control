@@ -15,12 +15,14 @@ import { StudentBillingTaxIdEditor } from "@/components/StudentBillingTaxIdEdito
 import { StudentPlanEditor } from "@/components/StudentPlanEditor";
 import { StudentBirthEditor } from "@/components/StudentBirthEditor";
 import { PrepaidApprovalDialog } from "@/components/PrepaidApprovalDialog";
+import { VeteranPeriodDialog } from "@/components/VeteranPeriodDialog";
 import { needsPaymentReview } from "@/lib/prepaid-contracts";
 import { supabase } from "@/integrations/supabase/client";
 import { useAcademyId, useStudents } from "@/hooks/useQueries";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { formatWhatsapp } from "@/lib/whatsapp-auth";
+import { callEdgeFunction } from "@/lib/api";
 import { BILLING_STATUS_LABELS, PAGE_SIZE, STUDENT_STATUS_LABELS } from "@/lib/constants";
 import {
   formatBillingTaxIdLabel,
@@ -154,6 +156,11 @@ const Alunos = () => {
       training_days_per_week?: number | null;
     } | null;
   } | null>(null);
+  const [veteranPeriodStudent, setVeteranPeriodStudent] = useState<{
+    id: string;
+    full_name: string;
+    requested_training_days?: number | null;
+  } | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -239,7 +246,11 @@ const Alunos = () => {
     }
   };
 
-  const handleApprove = async (studentId: string, approve: boolean) => {
+  const handleApprove = async (
+    studentId: string,
+    approve: boolean,
+    opts?: { isVeteran?: boolean },
+  ) => {
     setApprovingId(studentId);
     try {
       const { error } = await supabase.rpc("approve_student", {
@@ -247,9 +258,33 @@ const Alunos = () => {
         _approve: approve,
       });
       if (error) throw error;
+
+      if (approve) {
+        try {
+          await callEdgeFunction(
+            "notify-registration-event",
+            {
+              student_id: studentId,
+              event: opts?.isVeteran ? "veteran_period_request" : "approved",
+            },
+            { requireAuth: true },
+          );
+        } catch {
+          /* WhatsApp queue is best-effort */
+        }
+      }
+
       toast({
-        title: approve ? "Aluno aprovado" : "Aluno rejeitado",
-        description: approve ? "O aluno agora está ativo na academia." : "O cadastro foi rejeitado.",
+        title: approve
+          ? opts?.isVeteran
+            ? "Cadastro veterano analisado"
+            : "Aluno aprovado"
+          : "Aluno rejeitado",
+        description: approve
+          ? opts?.isVeteran
+            ? "WhatsApp solicitado com mensal/semestral/anual. Defina a modalidade a seguir."
+            : "Cadastro aprovado. Financeiro segue boleto Asaas ou confirmação ADM se for cartão."
+          : "O cadastro foi rejeitado.",
       });
       await queryClient.invalidateQueries({ queryKey: ["students"] });
     } catch (e) {
@@ -513,17 +548,45 @@ const Alunos = () => {
                                     }}
                                   >
                                     <Wallet className="h-3 w-3" />
-                                    Revisar pagamento
+                                    Pagamento aprovado
+                                  </Button>
+                                ) : (aluno as { registration_audience?: string | null }).registration_audience ===
+                                    "veterano" &&
+                                  (aluno as { billing_period_status?: string | null }).billing_period_status ===
+                                    "aguardando_escolha" ? (
+                                  <Button
+                                    size="sm"
+                                    className="gradient-primary text-primary-foreground h-8 gap-1"
+                                    onClick={() =>
+                                      setVeteranPeriodStudent({
+                                        id: aluno.id,
+                                        full_name: aluno.full_name,
+                                        requested_training_days: (aluno as {
+                                          requested_training_days?: number | null;
+                                        }).requested_training_days,
+                                      })
+                                    }
+                                  >
+                                    Definir modalidade
                                   </Button>
                                 ) : (
                                   <Button
                                     size="sm"
                                     className="gradient-primary text-primary-foreground h-8 gap-1"
                                     disabled={approvingId === aluno.id}
-                                    onClick={() => void handleApprove(aluno.id, true)}
+                                    onClick={() =>
+                                      void handleApprove(aluno.id, true, {
+                                        isVeteran:
+                                          (aluno as { registration_audience?: string | null })
+                                            .registration_audience === "veterano",
+                                      })
+                                    }
                                   >
                                     {approvingId === aluno.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                                    Aprovar
+                                    {(aluno as { registration_audience?: string | null }).registration_audience ===
+                                    "veterano"
+                                      ? "Aprovar cadastro"
+                                      : "Aprovar"}
                                   </Button>
                                 )}
                                 <Button
@@ -645,6 +708,26 @@ const Alunos = () => {
                 void queryClient.invalidateQueries({ queryKey: ["students"] });
                 void queryClient.invalidateQueries({ queryKey: ["student-financial-map"] });
                 setPrepaidStudent(null);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!veteranPeriodStudent}
+        onOpenChange={(open) => !open && setVeteranPeriodStudent(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Modalidade do veterano</DialogTitle>
+          </DialogHeader>
+          {veteranPeriodStudent && (
+            <VeteranPeriodDialog
+              student={veteranPeriodStudent}
+              onDone={() => {
+                void queryClient.invalidateQueries({ queryKey: ["students"] });
+                setVeteranPeriodStudent(null);
               }}
             />
           )}

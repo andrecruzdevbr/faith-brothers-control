@@ -3,10 +3,57 @@ export function buildRegistrationReceivedMessage(fullName: string): string {
   return [
     `Olá, ${name}! Seu cadastro na Faith Brothers Control foi recebido com sucesso.`,
     "",
-    "Agora é só aguardar a aprovação da academia.",
+    "Agora é só aguardar a revisão da academia.",
     "",
-    "Assim que seu acesso for aprovado, você poderá entrar no sistema usando seu WhatsApp e senha cadastrada.",
+    "Nenhum pagamento é considerado aprovado neste momento.",
+    "Assim que houver novidades, avisaremos por aqui.",
   ].join("\n");
+}
+
+export function buildRegistrationApprovedMessage(fullName: string): string {
+  const name = fullName.trim() || "aluno";
+  return [
+    `Olá, ${name}! Seu cadastro foi aprovado pela academia.`,
+    "",
+    "Em breve você receberá as orientações financeiras (boleto ou confirmação de pagamento).",
+    "",
+    "Faith Brothers Control 🥋",
+  ].join("\n");
+}
+
+export function buildVeteranPeriodRequestMessage(fullName: string, trainingDays?: number | null): string {
+  const name = fullName.trim() || "aluno";
+  const days = trainingDays === 2 || trainingDays === 3 || trainingDays === 5
+    ? `${trainingDays} dias`
+    : "a frequência escolhida";
+  return [
+    `Olá, ${name}! Seu cadastro de veterano (${days}/semana) foi analisado.`,
+    "",
+    "Responda ou fale com a academia para escolher a modalidade:",
+    "1) Mensal (boleto)",
+    "2) Semestral (pagamento na maquininha)",
+    "3) Anual (pagamento na maquininha)",
+    "",
+    "Cartão/maquininha só é liberado após confirmação do administrador.",
+    "",
+    "Faith Brothers Control 🥋",
+  ].join("\n");
+}
+
+export function buildRegistrationReceivedIdempotencyKey(studentId: string): string {
+  return `registration:${studentId}:received`;
+}
+
+export function buildRegistrationApprovedIdempotencyKey(studentId: string): string {
+  return `registration:${studentId}:approved`;
+}
+
+export function buildVeteranPeriodRequestIdempotencyKey(studentId: string): string {
+  return `registration:${studentId}:veteran_period_request`;
+}
+
+export function buildPaymentConfirmationIdempotencyKey(scope: string, entityId: string): string {
+  return `payment_confirmation:${scope}:${entityId}`;
 }
 
 export function buildContractApprovedMessage(params: {

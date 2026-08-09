@@ -41,8 +41,8 @@ describe("register-student WhatsApp confirmation", () => {
     const message = buildRegistrationReceivedMessage("João Silva");
     expect(message).toContain("Olá, João Silva!");
     expect(message).toContain("Faith Brothers Control");
-    expect(message).toContain("aguardar a aprovação da academia");
-    expect(message).toContain("WhatsApp e senha cadastrada");
+    expect(message).toContain("aguardar a revisão da academia");
+    expect(message).toContain("Nenhum pagamento é considerado aprovado");
   });
 
   it("queues WhatsApp after successful registration path", async () => {

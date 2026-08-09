@@ -34,6 +34,8 @@ type RegisterBody = {
   guardian_name?: string;
   payment_method?: string | null;
   installments?: number | null;
+  registration_audience?: string | null;
+  requested_training_days?: number | null;
   contract_type?: string | null;
   family_mode?: string | null;
   family_name?: string | null;
@@ -177,6 +179,14 @@ Deno.serve(async (req) => {
       body.installments == null || body.installments === undefined
         ? null
         : Number(body.installments);
+    const registrationAudience = body.registration_audience
+      ? String(body.registration_audience).trim()
+      : null;
+    const requestedTrainingDays =
+      body.requested_training_days == null || body.requested_training_days === undefined
+        ? null
+        : Number(body.requested_training_days);
+    const isVeteran = registrationAudience === "veterano";
     const contractType = String(body.contract_type ?? "individual").trim() || "individual";
     const familyMode = body.family_mode ? String(body.family_mode).trim() : null;
     const familyName = body.family_name ? String(body.family_name).trim() : null;
@@ -278,7 +288,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (!planId) {
+    if (isVeteran) {
+      if (requestedTrainingDays !== 2 && requestedTrainingDays !== 3 && requestedTrainingDays !== 5) {
+        return new Response(
+          JSON.stringify({ error: "Veterano: escolha 2, 3 ou 5 dias por semana." }),
+          { status: 400, headers },
+        );
+      }
+    } else if (!planId && !isFamilyWizard) {
       return new Response(JSON.stringify({ error: "Selecione um plano desejado." }), {
         status: 400,
         headers,
@@ -298,32 +315,58 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Academia inválida." }), { status: 400, headers });
     }
 
-    const { data: plan, error: planError } = await supabase
-      .from("plans")
-      .select("id, billing_mode, allows_installments, max_installments")
-      .eq("id", planId)
-      .eq("academy_id", academyId)
-      .eq("active", true)
-      .maybeSingle();
+    let billingMode = "asaas_monthly";
+    if (!isVeteran && planId) {
+      const { data: plan, error: planError } = await supabase
+        .from("plans")
+        .select("id, billing_mode, allows_installments, max_installments")
+        .eq("id", planId)
+        .eq("academy_id", academyId)
+        .eq("active", true)
+        .maybeSingle();
 
-    if (planError) throw new Error(planError.message);
-    if (!plan) {
-      return new Response(
-        JSON.stringify({ error: "Plano inválido ou inativo. Cadastre um plano ativo antes de vincular." }),
-        { status: 400, headers },
-      );
-    }
+      if (planError) throw new Error(planError.message);
+      if (!plan) {
+        return new Response(
+          JSON.stringify({
+            error: "Plano inválido ou inativo. Cadastre um plano ativo antes de vincular.",
+          }),
+          { status: 400, headers },
+        );
+      }
 
-    const billingMode = String((plan as { billing_mode?: string }).billing_mode ?? "asaas_monthly");
-    if (
-      (billingMode === "machine_prepaid" || billingMode === "machine_dropin") &&
-      (!paymentMethod ||
-        !["cartao_credito", "cartao_debito", "pix", "dinheiro"].includes(paymentMethod))
-    ) {
-      return new Response(JSON.stringify({ error: "Informe a forma de pagamento do pacote." }), {
-        status: 400,
-        headers,
-      });
+      billingMode = String((plan as { billing_mode?: string }).billing_mode ?? "asaas_monthly");
+      const machinePlan = billingMode === "machine_prepaid" || billingMode === "machine_dropin";
+      const newStudentCard =
+        (registrationAudience === "new_student" || !registrationAudience) &&
+        !machinePlan &&
+        !!paymentMethod &&
+        paymentMethod !== "boleto";
+
+      if (machinePlan) {
+        if (
+          !paymentMethod ||
+          !["cartao_credito", "cartao_debito", "pix", "dinheiro"].includes(paymentMethod)
+        ) {
+          return new Response(JSON.stringify({ error: "Informe a forma de pagamento do pacote." }), {
+            status: 400,
+            headers,
+          });
+        }
+      } else if (registrationAudience === "new_student" || !registrationAudience) {
+        if (
+          !paymentMethod ||
+          !["boleto", "cartao_credito", "cartao_debito", "pix", "dinheiro"].includes(paymentMethod)
+        ) {
+          return new Response(
+            JSON.stringify({ error: "Informe a forma de pagamento (boleto ou maquininha)." }),
+            { status: 400, headers },
+          );
+        }
+      }
+
+      // Card/machine intent is never auto-paid — validated again in RPC.
+      void newStudentCard;
     }
 
     const email = toSyntheticEmail(whatsapp);
@@ -477,11 +520,12 @@ Deno.serve(async (req) => {
           _whatsapp: whatsapp,
           _belt: belt,
           _tax_id: billingTaxId || null,
-          _plan_id: planId,
+          _plan_id: isVeteran ? null : planId || null,
           _birth_date: birthDate,
           _guardian_name: guardianName || null,
-          _payment_method: paymentMethod,
-          _installments: Number.isFinite(installments as number) ? installments : null,
+          _payment_method: isVeteran ? null : paymentMethod,
+          _installments:
+            isVeteran || !Number.isFinite(installments as number) ? null : installments,
           _contract_type: contractType,
           _family_mode: familyMode,
           _family_name: familyName,
@@ -493,6 +537,12 @@ Deno.serve(async (req) => {
           _financial_responsible_name: financialResponsibleName,
           _financial_responsible_phone: financialResponsiblePhone,
           _financial_responsible_email: financialResponsibleEmail,
+          _registration_audience: isVeteran
+            ? "veterano"
+            : registrationAudience === "new_student" || !registrationAudience
+              ? "new_student"
+              : registrationAudience,
+          _requested_training_days: isVeteran ? requestedTrainingDays : null,
         },
       );
 

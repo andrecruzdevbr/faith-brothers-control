@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       academies: {
@@ -1160,6 +1185,7 @@ export type Database = {
           academy_id: string
           asaas_customer_id: string | null
           belt: string | null
+          billing_period_status: string
           birth_date: string | null
           created_at: string
           degrees: number
@@ -1174,8 +1200,11 @@ export type Database = {
           photo_url: string | null
           plan_id: string | null
           profile_user_id: string | null
+          registration_audience: string | null
+          requested_billing_period: string | null
           requested_installments: number | null
           requested_payment_method: string | null
+          requested_training_days: number | null
           start_date: string | null
           status: Database["public"]["Enums"]["student_status"]
           updated_at: string
@@ -1185,6 +1214,7 @@ export type Database = {
           academy_id: string
           asaas_customer_id?: string | null
           belt?: string | null
+          billing_period_status?: string
           birth_date?: string | null
           created_at?: string
           degrees?: number
@@ -1199,8 +1229,11 @@ export type Database = {
           photo_url?: string | null
           plan_id?: string | null
           profile_user_id?: string | null
+          registration_audience?: string | null
+          requested_billing_period?: string | null
           requested_installments?: number | null
           requested_payment_method?: string | null
+          requested_training_days?: number | null
           start_date?: string | null
           status?: Database["public"]["Enums"]["student_status"]
           updated_at?: string
@@ -1210,6 +1243,7 @@ export type Database = {
           academy_id?: string
           asaas_customer_id?: string | null
           belt?: string | null
+          billing_period_status?: string
           birth_date?: string | null
           created_at?: string
           degrees?: number
@@ -1224,8 +1258,11 @@ export type Database = {
           photo_url?: string | null
           plan_id?: string | null
           profile_user_id?: string | null
+          registration_audience?: string | null
+          requested_billing_period?: string | null
           requested_installments?: number | null
           requested_payment_method?: string | null
+          requested_training_days?: number | null
           start_date?: string | null
           status?: Database["public"]["Enums"]["student_status"]
           updated_at?: string
@@ -1481,6 +1518,8 @@ export type Database = {
           _installments?: number
           _payment_method?: string
           _plan_id?: string
+          _registration_audience?: string
+          _requested_training_days?: number
           _tax_id?: string
           _user_id: string
           _whatsapp: string
@@ -1549,7 +1588,7 @@ export type Database = {
         }[]
       }
       get_public_active_plans: {
-        Args: { _academy_id: string }
+        Args: { _academy_id: string; _audience?: string }
         Returns: {
           allows_installments: boolean
           audience: string
@@ -1567,17 +1606,17 @@ export type Database = {
         }[]
       }
       get_public_class_schedules: {
-        Args: { _academy_id?: string | null }
+        Args: { _academy_id?: string }
         Returns: {
           academy_id: string
           active: boolean
           audience: string
           day_of_week: number
           id: string
-          level: string | null
+          level: string
           modality: string
           name: string
-          notes: string | null
+          notes: string
           sort_order: number
           start_time: string
         }[]
@@ -1685,6 +1724,15 @@ export type Database = {
           status: Database["public"]["Enums"]["student_status"]
           whatsapp: string
         }[]
+      }
+      set_veteran_billing_period: {
+        Args: {
+          _installments?: number
+          _payment_method?: string
+          _period: string
+          _student_id: string
+        }
+        Returns: string
       }
       student_has_prepaid_month_coverage: {
         Args: { _reference_month: string; _student_id: string }
@@ -1837,6 +1885,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: ["admin", "aluno", "professor", "academy_limited"],

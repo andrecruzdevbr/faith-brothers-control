@@ -18,7 +18,6 @@ import { isValidTaxId, normalizeTaxId } from "@/lib/tax-id";
 import { formatPlanOptionLabel, type PlanOption } from "@/lib/plans";
 import { isMinor, validateStudentBirthFields } from "@/lib/student-age";
 import {
-  PREPAID_PAYMENT_METHOD_LABELS,
   buildCoverageMonths,
   estimatedInstallmentAmount,
   formatCoverageMonthLabel,
@@ -27,6 +26,13 @@ import {
   resolveInstallments,
   type PrepaidPaymentMethod,
 } from "@/lib/prepaid-contracts";
+import {
+  NEW_STUDENT_PAYMENT_LABELS,
+  VETERAN_DAY_OPTIONS,
+  filterPlansForRegistrationAudience,
+  requiresAdminPaymentConfirmation,
+  type RegistrationAudience,
+} from "@/lib/registration-flows";
 import { FamilyRegistrationWizard } from "@/components/family/FamilyRegistrationWizard";
 import { ClassScheduleBoard } from "@/components/ClassScheduleBoard";
 import { usePublicClassSchedules } from "@/hooks/useQueries";
@@ -57,12 +63,14 @@ const signupSchema = z
     birthDate: z.string().min(1, "Informe a data de nascimento."),
     guardianName: z.string().trim().max(120).optional().or(z.literal("")),
     academyId: z.string().uuid("Selecione uma academia"),
-    planId: z.string().uuid("Selecione o plano desejado"),
+    planId: z.string().uuid("Selecione o plano desejado").optional().or(z.literal("")),
     billingTaxId: z.string().trim().optional().or(z.literal("")),
     belt: z.string().optional(),
     password: z.string().min(8, "A senha precisa ter pelo menos 8 caracteres").max(100),
     confirmPassword: z.string().min(8).max(100),
     contractType: z.enum(["individual", "familiar"]),
+    registrationAudience: z.enum(["new_student", "veterano"]).optional(),
+    trainingDays: z.enum(["2", "3", "5"]).optional(),
     familyMode: z.enum(["create", "join"]).optional(),
     familyName: z.string().trim().max(120).optional().or(z.literal("")),
     familyInviteCode: z.string().trim().max(20).optional().or(z.literal("")),
@@ -70,7 +78,7 @@ const signupSchema = z
     estimatedMemberCount: z.string().optional().or(z.literal("")),
     financialResponsibleName: z.string().trim().max(120).optional().or(z.literal("")),
     paymentMethod: z
-      .enum(["cartao_credito", "cartao_debito", "pix", "dinheiro"])
+      .enum(["boleto", "cartao_credito", "cartao_debito", "pix", "dinheiro"])
       .optional(),
     installments: z.string().optional().or(z.literal("")),
   })
@@ -85,6 +93,34 @@ const signupSchema = z
       } else {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: birthError, path: ["birthDate"] });
       }
+    }
+    if (data.contractType === "individual" && !data.registrationAudience) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Selecione se você é novo aluno ou veterano",
+        path: ["registrationAudience"],
+      });
+    }
+    if (data.registrationAudience === "new_student" && !data.planId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Selecione o plano desejado",
+        path: ["planId"],
+      });
+    }
+    if (data.registrationAudience === "new_student" && !data.paymentMethod) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Selecione a forma de pagamento",
+        path: ["paymentMethod"],
+      });
+    }
+    if (data.registrationAudience === "veterano" && !data.trainingDays) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Escolha 2, 3 ou 5 dias",
+        path: ["trainingDays"],
+      });
     }
   })
   .refine((data) => data.password === data.confirmPassword, {
@@ -125,6 +161,8 @@ const Cadastro = () => {
       password: "",
       confirmPassword: "",
       contractType: "individual",
+      registrationAudience: undefined,
+      trainingDays: undefined,
       familyMode: "create",
       familyName: "",
       familyInviteCode: "",
@@ -140,16 +178,19 @@ const Cadastro = () => {
   const selectedPlanId = form.watch("planId");
   const birthDateWatch = form.watch("birthDate");
   const contractType = form.watch("contractType");
+  const registrationAudience = form.watch("registrationAudience") as RegistrationAudience | undefined;
   const paymentMethod = form.watch("paymentMethod");
   const installmentsWatch = form.watch("installments");
   const showGuardianRequired = !!birthDateWatch && isMinor(birthDateWatch);
 
-  const selectedAcademy = academies.find((a) => a.id === selectedAcademyId);
-  const prepaidEnabled = !!selectedAcademy?.prepaid_contracts_enabled;
   /** Show Individual|Familiar as soon as any public academy has the flag (do not wait for academy select). */
   const familyPlansAvailable = academies.some((a) => !!a.family_plans_enabled);
   const selectedPlan = plans.find((p) => p.id === selectedPlanId);
   const machinePlan = isMachineBillingMode(selectedPlan?.billing_mode);
+  const isNewStudent = registrationAudience === "new_student";
+  const isVeteran = registrationAudience === "veterano";
+  const showPaymentFields = isNewStudent || machinePlan;
+  const needsCardConfirm = requiresAdminPaymentConfirmation(paymentMethod);
   const requireTaxId = true;
 
   useEffect(() => {
@@ -167,7 +208,7 @@ const Cadastro = () => {
 
   useEffect(() => {
     form.setValue("planId", "");
-    if (!selectedAcademyId) {
+    if (!selectedAcademyId || !isNewStudent) {
       setPlans([]);
       setLoadingPlans(false);
       return;
@@ -178,15 +219,39 @@ const Cadastro = () => {
       setLoadingPlans(true);
       const { data, error } = await supabase.rpc("get_public_active_plans", {
         _academy_id: selectedAcademyId,
+        _audience: "new_student",
       });
       if (cancelled) return;
       if (error) {
-        toast({
-          title: "Não foi possível carregar os planos",
-          description: error.message,
-          variant: "destructive",
+        // Fallback while migration with _audience is not applied yet
+        const fallback = await supabase.rpc("get_public_active_plans", {
+          _academy_id: selectedAcademyId,
         });
-        setPlans([]);
+        if (fallback.error) {
+          toast({
+            title: "Não foi possível carregar os planos",
+            description: fallback.error.message,
+            variant: "destructive",
+          });
+          setPlans([]);
+        } else {
+          const mapped = (fallback.data ?? []).map((p) => ({
+            id: p.id,
+            name: p.name,
+            monthly_price: Number(p.monthly_price),
+            training_days_per_week: p.training_days_per_week,
+            audience: (p as PlanOption).audience,
+            plan_kind: (p as PlanOption).plan_kind,
+            duration_months: (p as PlanOption).duration_months ?? 1,
+            reference_monthly_price: (p as PlanOption).reference_monthly_price,
+            package_total_amount: (p as PlanOption).package_total_amount,
+            billing_mode: (p as PlanOption).billing_mode ?? "asaas_monthly",
+            allows_installments: (p as PlanOption).allows_installments ?? false,
+            max_installments: (p as PlanOption).max_installments ?? 1,
+            description: (p as PlanOption).description,
+          }));
+          setPlans(filterPlansForRegistrationAudience(mapped, "new_student"));
+        }
       } else {
         setPlans(
           (data ?? []).map((p) => ({
@@ -212,7 +277,7 @@ const Cadastro = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedAcademyId, form, toast]);
+  }, [selectedAcademyId, isNewStudent, form, toast]);
 
   useEffect(() => {
     if (!loadingAcademies && !familyPlansAvailable && contractType === "familiar") {
@@ -229,20 +294,33 @@ const Cadastro = () => {
   }, [loadingAcademies, academies, selectedAcademyId, form]);
 
   useEffect(() => {
-    if (!machinePlan) {
+    if (!showPaymentFields) {
       form.setValue("paymentMethod", undefined);
       form.setValue("installments", "1");
     }
-  }, [machinePlan, form]);
+  }, [showPaymentFields, form]);
+
+  useEffect(() => {
+    form.setValue("planId", "");
+    form.setValue("trainingDays", undefined);
+    form.setValue("paymentMethod", undefined);
+    form.setValue("installments", "1");
+  }, [registrationAudience, form]);
 
   const installmentInfo = useMemo(() => {
-    if (!machinePlan || !selectedPlan || !paymentMethod) return null;
+    if (!needsCardConfirm || !selectedPlan || !paymentMethod || paymentMethod === "boleto") {
+      return null;
+    }
     const total = planDisplayTotal(selectedPlan);
+    const maxInstallments = Math.max(
+      1,
+      Number(selectedPlan.max_installments ?? (isNewStudent ? 12 : 1)),
+    );
     const resolved = resolveInstallments({
       paymentMethod: paymentMethod as PrepaidPaymentMethod,
       requestedInstallments: Number(installmentsWatch || 1),
-      allowsInstallments: !!selectedPlan.allows_installments,
-      maxInstallments: selectedPlan.max_installments ?? 1,
+      allowsInstallments: paymentMethod === "cartao_credito",
+      maxInstallments,
     });
     return {
       total,
@@ -251,10 +329,10 @@ const Cadastro = () => {
       parcel: estimatedInstallmentAmount(total, resolved.installments),
       months: buildCoverageMonths(
         new Date().toISOString().slice(0, 10),
-        Number(selectedPlan.duration_months ?? 0),
+        Number(selectedPlan.duration_months ?? (isNewStudent ? 1 : 0)),
       ),
     };
-  }, [machinePlan, selectedPlan, paymentMethod, installmentsWatch]);
+  }, [needsCardConfirm, selectedPlan, paymentMethod, installmentsWatch, isNewStudent]);
 
   const scheduleAcademyId = selectedAcademyId || (academies.length === 1 ? academies[0]?.id : null);
   const { data: publicSchedules, isLoading: loadingSchedules } = usePublicClassSchedules(scheduleAcademyId);
@@ -273,17 +351,24 @@ const Cadastro = () => {
       form.setError("billingTaxId", { message: "CPF (11 dígitos) ou CNPJ (14 dígitos) inválido" });
       return;
     }
-    if (machinePlan && !values.paymentMethod) {
-      form.setError("paymentMethod", { message: "Selecione a forma de pagamento" });
+    const audience = values.registrationAudience;
+    if (!audience) {
+      form.setError("registrationAudience", { message: "Selecione o tipo de aluno" });
       return;
     }
+
     let installments = 1;
-    if (machinePlan && values.paymentMethod && selectedPlan) {
+    if (
+      audience === "new_student" &&
+      values.paymentMethod &&
+      values.paymentMethod !== "boleto" &&
+      selectedPlan
+    ) {
       const resolved = resolveInstallments({
-        paymentMethod: values.paymentMethod,
+        paymentMethod: values.paymentMethod as PrepaidPaymentMethod,
         requestedInstallments: Number(values.installments || 1),
-        allowsInstallments: !!selectedPlan.allows_installments,
-        maxInstallments: selectedPlan.max_installments ?? 1,
+        allowsInstallments: values.paymentMethod === "cartao_credito",
+        maxInstallments: Math.max(1, Number(selectedPlan.max_installments ?? 12)),
       });
       if (resolved.error) {
         form.setError("installments", { message: resolved.error });
@@ -305,11 +390,19 @@ const Cadastro = () => {
           academy_id: values.academyId,
           belt: values.belt || "Branca",
           billing_tax_id: values.billingTaxId ? normalizeTaxId(values.billingTaxId) : null,
-          plan_id: values.planId,
+          plan_id: audience === "veterano" ? null : values.planId,
           birth_date: values.birthDate,
           guardian_name: values.guardianName?.trim() || null,
-          payment_method: machinePlan ? values.paymentMethod : null,
-          installments: machinePlan ? installments : null,
+          payment_method: audience === "new_student" ? values.paymentMethod : null,
+          installments:
+            audience === "new_student" && values.paymentMethod !== "boleto"
+              ? installments
+              : null,
+          registration_audience: audience,
+          requested_training_days:
+            audience === "veterano" && values.trainingDays
+              ? Number(values.trainingDays)
+              : null,
           contract_type: "individual",
         },
         { requireAuth: false },
@@ -318,9 +411,11 @@ const Cadastro = () => {
       toast({
         title: "Cadastro realizado",
         description:
-          machinePlan
-            ? "Aguarde a academia confirmar o pagamento. Nenhum boleto é gerado no cadastro."
-            : "Aguarde a aprovação da academia. Depois disso, faça login com seu WhatsApp e senha.",
+          audience === "veterano"
+            ? "Cadastro enviado para análise. Após aprovação, a academia pedirá mensal, semestral ou anual."
+            : needsCardConfirm
+              ? "Cadastro pendente. O pagamento na maquininha só libera após o administrador confirmar."
+              : "Cadastro pendente de revisão. Você receberá WhatsApp de confirmação de recebimento.",
       });
       navigate("/login", { replace: true });
     } catch (err) {
@@ -335,12 +430,14 @@ const Cadastro = () => {
     }
   };
 
-  const noActivePlans = !!selectedAcademyId && !loadingPlans && plans.length === 0;
-  const showCreditInstallments =
-    machinePlan &&
-    paymentMethod === "cartao_credito" &&
-    !!selectedPlan?.allows_installments &&
-    (selectedPlan.max_installments ?? 1) > 1;
+  const noActivePlans =
+    isNewStudent && !!selectedAcademyId && !loadingPlans && plans.length === 0;
+  const showCreditInstallments = paymentMethod === "cartao_credito";
+  const submitDisabled =
+    submitting ||
+    loadingAcademies ||
+    (isNewStudent && (loadingPlans || noActivePlans)) ||
+    !registrationAudience;
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4 py-10">
@@ -390,6 +487,35 @@ const Cadastro = () => {
           ) : (
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="registrationAudience"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Você já treina na Faith Brothers?</FormLabel>
+                    <div className="grid grid-cols-1 gap-2">
+                      <Button
+                        type="button"
+                        className="h-auto min-h-11 whitespace-normal px-3 py-3 text-sm"
+                        variant={field.value === "new_student" ? "default" : "outline"}
+                        onClick={() => field.onChange("new_student")}
+                      >
+                        Ainda não sou aluno / Quero iniciar
+                      </Button>
+                      <Button
+                        type="button"
+                        className="h-auto min-h-11 whitespace-normal px-3 py-3 text-sm"
+                        variant={field.value === "veterano" ? "default" : "outline"}
+                        onClick={() => field.onChange("veterano")}
+                      >
+                        Já sou aluno / Veterano
+                      </Button>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name="fullName"
@@ -533,63 +659,82 @@ const Cadastro = () => {
                 </div>
               ) : null}
 
-              <FormField
-                control={form.control}
-                name="planId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Plano desejado</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value || undefined}
-                      disabled={!selectedAcademyId || loadingPlans || noActivePlans}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue
-                            placeholder={
-                              !selectedAcademyId
-                                ? "Selecione a academia primeiro"
-                                : loadingPlans
-                                  ? "Carregando planos..."
-                                  : noActivePlans
-                                    ? "Nenhum plano disponível"
-                                    : "Selecione o plano"
-                            }
-                          />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {plans.map((plan) => (
-                          <SelectItem key={plan.id} value={plan.id}>
-                            {formatPlanOptionLabel(plan)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {selectedPlan?.description ? (
-                      <p className="text-xs text-muted-foreground">{selectedPlan.description}</p>
-                    ) : machinePlan ? (
+              {isNewStudent ? (
+                <FormField
+                  control={form.control}
+                  name="planId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Plano desejado (iniciante)</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value || undefined}
+                        disabled={!selectedAcademyId || loadingPlans || noActivePlans}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={
+                                !selectedAcademyId
+                                  ? "Selecione a academia primeiro"
+                                  : loadingPlans
+                                    ? "Carregando planos..."
+                                    : noActivePlans
+                                      ? "Nenhum plano disponível"
+                                      : "Selecione o plano"
+                              }
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {plans.map((plan) => (
+                            <SelectItem key={plan.id} value={plan.id}>
+                              {formatPlanOptionLabel(plan)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <p className="text-xs text-muted-foreground">
-                        Pagamento na academia. Parcelas do cartão são só informação da maquininha — o mês
-                        da data de início conta inteiro (mesmo começando no meio do mês).
+                        Cadastro fica pendente de revisão. Pagamento só é aprovado depois (Asaas ou
+                        confirmação do ADM na maquininha).
                       </p>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        Você fica pendente até a academia aprovar. Nenhuma cobrança é gerada no cadastro.
-                      </p>
-                    )}
-                    {!prepaidEnabled && selectedAcademyId ? (
-                      <p className="text-xs text-muted-foreground">
-                        Pacotes antecipados ainda não estão habilitados nesta academia.
-                      </p>
-                    ) : null}
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
 
-              {machinePlan ? (
+              {isVeteran ? (
+                <FormField
+                  control={form.control}
+                  name="trainingDays"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Frequência semanal</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="2, 3 ou 5 dias" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {VETERAN_DAY_OPTIONS.map((days) => (
+                            <SelectItem key={days} value={String(days)}>
+                              {days} dias por semana
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Após a análise do cadastro, a academia pedirá mensal, semestral ou anual.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
+
+              {isNewStudent ? (
                 <>
                   <FormField
                     control={form.control}
@@ -604,15 +749,23 @@ const Cadastro = () => {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {(Object.keys(PREPAID_PAYMENT_METHOD_LABELS) as PrepaidPaymentMethod[]).map(
-                              (method) => (
-                                <SelectItem key={method} value={method}>
-                                  {PREPAID_PAYMENT_METHOD_LABELS[method]}
-                                </SelectItem>
-                              ),
-                            )}
+                            {Object.entries(NEW_STUDENT_PAYMENT_LABELS).map(([method, label]) => (
+                              <SelectItem key={method} value={method}>
+                                {label}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
+                        {paymentMethod === "boleto" ? (
+                          <p className="text-xs text-muted-foreground">
+                            Fluxo Asaas: cobrança conforme calendário após aprovação do cadastro.
+                          </p>
+                        ) : needsCardConfirm ? (
+                          <p className="text-xs text-muted-foreground">
+                            Pagamento físico na maquininha. Só o administrador pode marcar como
+                            aprovado.
+                          </p>
+                        ) : null}
                         <FormMessage />
                       </FormItem>
                     )}
@@ -633,7 +786,12 @@ const Cadastro = () => {
                             </FormControl>
                             <SelectContent>
                               {Array.from(
-                                { length: selectedPlan?.max_installments ?? 1 },
+                                {
+                                  length: Math.max(
+                                    1,
+                                    Number(selectedPlan?.max_installments ?? 12),
+                                  ),
+                                },
                                 (_, i) => i + 1,
                               ).map((n) => (
                                 <SelectItem key={n} value={String(n)}>
@@ -659,14 +817,10 @@ const Cadastro = () => {
                       </p>
                       {installmentInfo.months.length > 0 ? (
                         <p className="text-xs text-muted-foreground">
-                          Após confirmação do admin, meses liberados (exemplo a partir de hoje):{" "}
+                          Após confirmação do admin:{" "}
                           {installmentInfo.months.map(formatCoverageMonthLabel).join(", ")}
                         </p>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">
-                          Avulso: não cria meses futuros nem entra no cron de boletos.
-                        </p>
-                      )}
+                      ) : null}
                     </div>
                   ) : null}
                 </>
@@ -727,13 +881,9 @@ const Cadastro = () => {
                 />
               </div>
 
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={submitting || loadingAcademies || loadingPlans || noActivePlans}
-              >
+              <Button type="submit" className="w-full" disabled={submitDisabled}>
                 <UserPlus className="h-4 w-4" />
-                {submitting ? "Criando conta..." : "Criar conta"}
+                {submitting ? "Criando conta..." : "Finalizar cadastro"}
               </Button>
             </form>
           </Form>
