@@ -34,9 +34,6 @@ import {
   type FamilyWizardMemberDraft,
 } from "@/lib/family-wizard";
 import { supabase } from "@/integrations/supabase/client";
-import { ClassScheduleBoard } from "@/components/ClassScheduleBoard";
-import { usePublicClassSchedules } from "@/hooks/useQueries";
-import type { ClassScheduleRow } from "@/lib/class-schedules";
 
 type AcademyOption = {
   id: string;
@@ -114,9 +111,6 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
   const showGuardian = !!birthDate && isMinor(birthDate);
   const practitionerCount = countFamilyPractitioners(responsibleTrains === true, members.length);
   const totalAmount = selectedPlan ? planDisplayTotal(selectedPlan) : 0;
-  const { data: publicSchedules, isLoading: loadingSchedules } = usePublicClassSchedules(
-    academyId || null,
-  );
 
   useEffect(() => {
     const load = async () => {
@@ -1041,16 +1035,6 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
           <p className="text-xs text-muted-foreground">
             O valor não é multiplicado pela quantidade de integrantes.
           </p>
-        </div>
-      ) : null}
-
-      {academyId ? (
-        <div className="rounded-xl border border-border bg-muted/30 p-4">
-          <ClassScheduleBoard
-            rows={(publicSchedules ?? []) as ClassScheduleRow[]}
-            loading={loadingSchedules}
-            title="Turmas e Horários"
-          />
         </div>
       ) : null}
 

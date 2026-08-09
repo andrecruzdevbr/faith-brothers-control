@@ -34,9 +34,6 @@ import {
   type RegistrationAudience,
 } from "@/lib/registration-flows";
 import { FamilyRegistrationWizard } from "@/components/family/FamilyRegistrationWizard";
-import { ClassScheduleBoard } from "@/components/ClassScheduleBoard";
-import { usePublicClassSchedules } from "@/hooks/useQueries";
-import type { ClassScheduleRow } from "@/lib/class-schedules";
 
 const BELTS = [
   "Branca",
@@ -333,9 +330,6 @@ const Cadastro = () => {
       ),
     };
   }, [needsCardConfirm, selectedPlan, paymentMethod, installmentsWatch, isNewStudent]);
-
-  const scheduleAcademyId = selectedAcademyId || (academies.length === 1 ? academies[0]?.id : null);
-  const { data: publicSchedules, isLoading: loadingSchedules } = usePublicClassSchedules(scheduleAcademyId);
 
   if (!loading && isAuthenticated) {
     return <Navigate to={getHomePath(roles)} replace />;
@@ -648,16 +642,6 @@ const Cadastro = () => {
                   </FormItem>
                 )}
               />
-
-              {scheduleAcademyId ? (
-                <div className="rounded-xl border border-border bg-muted/30 p-4">
-                  <ClassScheduleBoard
-                    rows={(publicSchedules ?? []) as ClassScheduleRow[]}
-                    loading={loadingSchedules}
-                    title="Turmas e Horários"
-                  />
-                </div>
-              ) : null}
 
               {isNewStudent ? (
                 <FormField
