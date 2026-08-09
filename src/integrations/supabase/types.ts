@@ -1184,6 +1184,8 @@ export type Database = {
         Row: {
           academy_id: string
           asaas_customer_id: string | null
+          approved_at: string | null
+          approved_by: string | null
           belt: string | null
           billing_period_status: string
           birth_date: string | null
@@ -1213,6 +1215,8 @@ export type Database = {
         Insert: {
           academy_id: string
           asaas_customer_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
           belt?: string | null
           billing_period_status?: string
           birth_date?: string | null
@@ -1242,6 +1246,8 @@ export type Database = {
         Update: {
           academy_id?: string
           asaas_customer_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
           belt?: string | null
           billing_period_status?: string
           birth_date?: string | null

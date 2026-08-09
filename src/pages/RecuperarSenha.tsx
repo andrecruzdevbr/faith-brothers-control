@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Send, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { normalizeWhatsapp } from "@/lib/whatsapp-auth";
@@ -214,10 +215,9 @@ const RecuperarSenha = () => {
 
               <div className="space-y-2">
                 <Label htmlFor="reset-new-password">Nova senha</Label>
-                <Input
+                <PasswordInput
                   id="reset-new-password"
                   name="new-password"
-                  type="password"
                   autoComplete="new-password"
                   placeholder="••••••••"
                   value={newPassword}
@@ -228,10 +228,9 @@ const RecuperarSenha = () => {
 
               <div className="space-y-2">
                 <Label htmlFor="reset-confirm-password">Confirmar nova senha</Label>
-                <Input
+                <PasswordInput
                   id="reset-confirm-password"
                   name="confirm-password"
-                  type="password"
                   autoComplete="new-password"
                   placeholder="••••••••"
                   value={confirmPassword}

@@ -6,6 +6,7 @@ import {
   buildRegistrationApprovedMessage,
   buildVeteranPeriodRequestIdempotencyKey,
   buildVeteranPeriodRequestMessage,
+  resolveRegistrationApprovedVariant,
 } from "../_shared/whatsapp-messages.ts";
 import { logSafeError, sanitizeLogError } from "../_shared/sanitize-log.ts";
 
@@ -41,7 +42,9 @@ Deno.serve(async (req) => {
     const supabase = createServiceClient();
     const { data: student, error: studentError } = await supabase
       .from("students")
-      .select("id, academy_id, full_name, whatsapp, registration_audience, requested_training_days")
+      .select(
+        "id, academy_id, full_name, whatsapp, registration_audience, requested_training_days, payment_review_status, pending_family_group_id, requested_payment_method",
+      )
       .eq("id", studentId)
       .maybeSingle();
 
@@ -63,9 +66,15 @@ Deno.serve(async (req) => {
 
     const sendImmediately = body.send_immediately === true;
     const isVeteranPeriod = event === "veteran_period_request";
+    const variant = resolveRegistrationApprovedVariant({
+      registrationAudience: student.registration_audience,
+      paymentReviewStatus: student.payment_review_status,
+      pendingFamilyGroupId: student.pending_family_group_id,
+      requestedPaymentMethod: student.requested_payment_method,
+    });
     const messageBody = isVeteranPeriod
       ? buildVeteranPeriodRequestMessage(student.full_name, student.requested_training_days)
-      : buildRegistrationApprovedMessage(student.full_name);
+      : buildRegistrationApprovedMessage(student.full_name, variant);
     const idempotencyKey = isVeteranPeriod
       ? buildVeteranPeriodRequestIdempotencyKey(student.id)
       : buildRegistrationApprovedIdempotencyKey(student.id);
@@ -76,7 +85,7 @@ Deno.serve(async (req) => {
       studentId: student.id,
       recipient: student.whatsapp,
       body: messageBody,
-      messageType: "registration",
+      messageType: isVeteranPeriod ? "registration" : "registration_approved",
       idempotencyKey,
       sendImmediately,
     });

@@ -7,6 +7,7 @@ import { LogIn } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useToast } from "@/hooks/use-toast";
 import { getHomePath } from "@/lib/access";
 import { isValidWhatsapp } from "@/lib/whatsapp-auth";
@@ -121,9 +122,8 @@ const Login = () => {
                   <FormItem>
                     <FormLabel>Senha</FormLabel>
                     <FormControl>
-                      <input
+                      <PasswordInput
                         name="password"
-                        type="password"
                         autoComplete="current-password"
                         data-lpignore="true"
                         data-1p-ignore="true"
@@ -132,7 +132,6 @@ const Login = () => {
                         onChange={field.onChange}
                         onBlur={field.onBlur}
                         ref={field.ref}
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
                       />
                     </FormControl>
                     <FormMessage />

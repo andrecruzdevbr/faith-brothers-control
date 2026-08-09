@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useToast } from "@/hooks/use-toast";
 import { formatWhatsapp } from "@/lib/whatsapp-auth";
 import { StudentBillingTaxIdEditor } from "@/components/StudentBillingTaxIdEditor";
@@ -142,15 +143,15 @@ const MeuPerfil = () => {
         <div className="space-y-4 max-w-md">
           <div>
             <label className="text-sm text-muted-foreground">Senha atual</label>
-            <Input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="••••••••" />
+            <PasswordInput value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" />
           </div>
           <div>
             <label className="text-sm text-muted-foreground">Nova senha</label>
-            <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="••••••••" />
+            <PasswordInput value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" />
           </div>
           <div>
             <label className="text-sm text-muted-foreground">Confirmar nova senha</label>
-            <Input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="••••••••" />
+            <PasswordInput value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" />
           </div>
           <Button onClick={handleChangePassword} disabled={changingPassword || !newPassword}>
             <Save className="h-4 w-4" />

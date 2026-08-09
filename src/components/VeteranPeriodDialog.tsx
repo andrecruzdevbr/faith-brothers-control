@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
-import { callEdgeFunction } from "@/lib/api";
 import { formatPlanOptionLabel, type PlanOption } from "@/lib/plans";
 import {
   BILLING_PERIOD_LABELS,
@@ -127,15 +126,6 @@ export function VeteranPeriodDialog({ student, onDone }: Props) {
           description: "Aguardando confirmação do pagamento na maquininha pelo administrador.",
         });
       } else {
-        try {
-          await callEdgeFunction(
-            "notify-registration-event",
-            { student_id: student.id, event: "approved" },
-            { requireAuth: true },
-          );
-        } catch {
-          /* WA optional */
-        }
         toast({
           title: "Plano mensal veterano ativado",
           description: "Aluno ativo. Cobrança Asaas seguirá o calendário configurado.",

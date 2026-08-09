@@ -10,14 +10,49 @@ export function buildRegistrationReceivedMessage(fullName: string): string {
   ].join("\n");
 }
 
-export function buildRegistrationApprovedMessage(fullName: string): string {
+export type RegistrationApprovedVariant =
+  | "card"
+  | "boleto"
+  | "veteran"
+  | "family"
+  | "generic";
+
+export function resolveRegistrationApprovedVariant(input: {
+  registrationAudience?: string | null;
+  paymentReviewStatus?: string | null;
+  pendingFamilyGroupId?: string | null;
+  requestedPaymentMethod?: string | null;
+}): RegistrationApprovedVariant {
+  if (input.pendingFamilyGroupId) return "family";
+  if (input.registrationAudience === "veterano") return "veteran";
+  if (input.paymentReviewStatus === "aguardando_conferencia") return "card";
+  const method = (input.requestedPaymentMethod ?? "").trim();
+  if (method === "boleto" || method === "") return "boleto";
+  return "generic";
+}
+
+export function buildRegistrationApprovedMessage(
+  fullName: string,
+  variant: RegistrationApprovedVariant = "generic",
+): string {
   const name = fullName.trim() || "aluno";
+  const closing =
+    variant === "card"
+      ? "Agora só falta concluirmos a etapa financeira do seu plano — aguardando confirmação do pagamento."
+      : variant === "boleto"
+        ? "Agora só falta concluirmos a etapa financeira do seu plano — o fluxo de cobrança seguirá em breve."
+        : variant === "veteran"
+          ? "Agora falta apenas definirmos seu plano e a forma de pagamento."
+          : variant === "family"
+            ? "Agora só falta concluirmos a etapa financeira da família."
+            : "Agora só falta concluirmos a etapa financeira do seu plano.";
+
   return [
     `Olá, ${name}! Seu cadastro na Faith Brothers foi aprovado. 🥋`,
     "",
-    "Seja bem-vindo(a)!",
+    "Seja bem-vindo!",
     "",
-    "Seu acesso já foi liberado. Em caso de dúvidas, fale com a nossa equipe.",
+    closing,
   ].join("\n");
 }
 

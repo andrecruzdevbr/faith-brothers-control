@@ -16,14 +16,20 @@ import { StudentPlanEditor } from "@/components/StudentPlanEditor";
 import { StudentBirthEditor } from "@/components/StudentBirthEditor";
 import { PrepaidApprovalDialog } from "@/components/PrepaidApprovalDialog";
 import { VeteranPeriodDialog } from "@/components/VeteranPeriodDialog";
-import { needsPaymentReview } from "@/lib/prepaid-contracts";
+import {
+  getAdminStudentStatusLabel,
+  shouldShowApproveRegistrationButton,
+  shouldShowMachinePaymentButton,
+  shouldShowRejectButton,
+  needsVeteranModality,
+} from "@/lib/registration-approval";
 import { supabase } from "@/integrations/supabase/client";
 import { useAcademyId, useStudents } from "@/hooks/useQueries";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { formatWhatsapp } from "@/lib/whatsapp-auth";
 import { callEdgeFunction } from "@/lib/api";
-import { BILLING_STATUS_LABELS, PAGE_SIZE, STUDENT_STATUS_LABELS } from "@/lib/constants";
+import { BILLING_STATUS_LABELS, PAGE_SIZE } from "@/lib/constants";
 import {
   formatBillingTaxIdLabel,
   isMissingBillingTaxId,
@@ -293,12 +299,12 @@ const Alunos = () => {
         title: approve
           ? opts?.isVeteran
             ? "Cadastro veterano aprovado"
-            : "Aluno aprovado"
+            : "Cadastro aprovado"
           : "Aluno rejeitado",
         description: approve
           ? opts?.isVeteran
             ? "WhatsApp de aprovação enviado. Defina plano e pagamento quando os valores estiverem cadastrados."
-            : "WhatsApp de aprovação enviado. Financeiro segue boleto Asaas ou confirmação ADM se for cartão."
+            : "WhatsApp de aprovação enviado. O pagamento (se houver) continua em etapa separada."
           : "O cadastro foi rejeitado.",
       });
       await queryClient.invalidateQueries({ queryKey: ["students"] });
@@ -461,7 +467,16 @@ const Alunos = () => {
                               ? "text-warning bg-warning/10"
                               : "text-destructive bg-destructive/10"
                         }`}>
-                          {STUDENT_STATUS_LABELS[aluno.status] ?? aluno.status}
+                          {getAdminStudentStatusLabel({
+                            status: aluno.status,
+                            approved_at: (aluno as { approved_at?: string | null }).approved_at,
+                            payment_review_status: (aluno as { payment_review_status?: string | null })
+                              .payment_review_status,
+                            registration_audience: (aluno as { registration_audience?: string | null })
+                              .registration_audience,
+                            billing_period_status: (aluno as { billing_period_status?: string | null })
+                              .billing_period_status,
+                          })}
                         </span>
                       </td>
                       {isStaff && (
@@ -541,9 +556,42 @@ const Alunos = () => {
                             </Button>
                             {isAdmin && isPending ? (
                               <>
-                                {needsPaymentReview(
-                                  (aluno as { payment_review_status?: string | null }).payment_review_status,
-                                ) ? (
+                                {shouldShowApproveRegistrationButton({
+                                  status: aluno.status,
+                                  approved_at: (aluno as { approved_at?: string | null }).approved_at,
+                                  payment_review_status: (aluno as { payment_review_status?: string | null })
+                                    .payment_review_status,
+                                  registration_audience: (aluno as { registration_audience?: string | null })
+                                    .registration_audience,
+                                  billing_period_status: (aluno as { billing_period_status?: string | null })
+                                    .billing_period_status,
+                                }) ? (
+                                  <Button
+                                    size="sm"
+                                    className="gradient-primary text-primary-foreground h-8 gap-1"
+                                    disabled={approvingId === aluno.id}
+                                    onClick={() =>
+                                      void handleApprove(aluno.id, true, {
+                                        isVeteran:
+                                          (aluno as { registration_audience?: string | null })
+                                            .registration_audience === "veterano",
+                                      })
+                                    }
+                                  >
+                                    {approvingId === aluno.id ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <Check className="h-3 w-3" />
+                                    )}
+                                    Aprovar cadastro
+                                  </Button>
+                                ) : null}
+                                {shouldShowMachinePaymentButton({
+                                  status: aluno.status,
+                                  approved_at: (aluno as { approved_at?: string | null }).approved_at,
+                                  payment_review_status: (aluno as { payment_review_status?: string | null })
+                                    .payment_review_status,
+                                }) ? (
                                   <Button
                                     size="sm"
                                     className="gradient-primary text-primary-foreground h-8 gap-1"
@@ -553,11 +601,17 @@ const Alunos = () => {
                                         id: aluno.id,
                                         full_name: aluno.full_name,
                                         plan_id: aluno.plan_id,
-                                        requested_payment_method: (aluno as { requested_payment_method?: string }).requested_payment_method,
-                                        requested_installments: (aluno as { requested_installments?: number }).requested_installments,
-                                        payment_review_status: (aluno as { payment_review_status?: string }).payment_review_status,
-                                        pending_family_group_id: (aluno as { pending_family_group_id?: string }).pending_family_group_id,
-                                        pending_family_invite_code: (aluno as { pending_family_invite_code?: string }).pending_family_invite_code,
+                                        requested_payment_method: (aluno as { requested_payment_method?: string })
+                                          .requested_payment_method,
+                                        requested_installments: (aluno as { requested_installments?: number })
+                                          .requested_installments,
+                                        payment_review_status: (aluno as { payment_review_status?: string })
+                                          .payment_review_status,
+                                        pending_family_group_id: (aluno as { pending_family_group_id?: string })
+                                          .pending_family_group_id,
+                                        pending_family_invite_code: (aluno as {
+                                          pending_family_invite_code?: string;
+                                        }).pending_family_invite_code,
                                         plans: plan,
                                       });
                                     }}
@@ -565,10 +619,23 @@ const Alunos = () => {
                                     <Wallet className="h-3 w-3" />
                                     Pagamento aprovado
                                   </Button>
-                                ) : (aluno as { registration_audience?: string | null }).registration_audience ===
-                                    "veterano" &&
-                                  (aluno as { billing_period_status?: string | null }).billing_period_status ===
-                                    "aguardando_escolha" ? (
+                                ) : null}
+                                {needsVeteranModality({
+                                  status: aluno.status,
+                                  approved_at: (aluno as { approved_at?: string | null }).approved_at,
+                                  registration_audience: (aluno as { registration_audience?: string | null })
+                                    .registration_audience,
+                                  billing_period_status: (aluno as { billing_period_status?: string | null })
+                                    .billing_period_status,
+                                  payment_review_status: (aluno as { payment_review_status?: string | null })
+                                    .payment_review_status,
+                                }) &&
+                                !shouldShowMachinePaymentButton({
+                                  status: aluno.status,
+                                  approved_at: (aluno as { approved_at?: string | null }).approved_at,
+                                  payment_review_status: (aluno as { payment_review_status?: string | null })
+                                    .payment_review_status,
+                                }) ? (
                                   <Button
                                     size="sm"
                                     className="gradient-primary text-primary-foreground h-8 gap-1"
@@ -585,35 +652,21 @@ const Alunos = () => {
                                   >
                                     Definir modalidade
                                   </Button>
-                                ) : (
+                                ) : null}
+                                {shouldShowRejectButton({
+                                  status: aluno.status,
+                                  approved_at: (aluno as { approved_at?: string | null }).approved_at,
+                                }) ? (
                                   <Button
                                     size="sm"
-                                    className="gradient-primary text-primary-foreground h-8 gap-1"
+                                    variant="outline"
+                                    className="h-8"
                                     disabled={approvingId === aluno.id}
-                                    onClick={() =>
-                                      void handleApprove(aluno.id, true, {
-                                        isVeteran:
-                                          (aluno as { registration_audience?: string | null })
-                                            .registration_audience === "veterano",
-                                      })
-                                    }
+                                    onClick={() => void handleApprove(aluno.id, false)}
                                   >
-                                    {approvingId === aluno.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                                    {(aluno as { registration_audience?: string | null }).registration_audience ===
-                                    "veterano"
-                                      ? "Aprovar cadastro"
-                                      : "Aprovar"}
+                                    Rejeitar
                                   </Button>
-                                )}
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8"
-                                  disabled={approvingId === aluno.id}
-                                  onClick={() => void handleApprove(aluno.id, false)}
-                                >
-                                  Rejeitar
-                                </Button>
+                                ) : null}
                               </>
                             ) : null}
                           </div>

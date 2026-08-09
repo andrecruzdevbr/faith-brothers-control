@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Check, Link2, Pencil, Plus, Trash2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -579,14 +580,14 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
           ) : null}
           <div className="space-y-1.5">
             <Label>Senha de acesso</Label>
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
           </div>
           <div className="space-y-1.5">
             <Label>Confirmar senha</Label>
-            <Input
-              type="password"
+            <PasswordInput
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
+              autoComplete="new-password"
             />
           </div>
         </div>

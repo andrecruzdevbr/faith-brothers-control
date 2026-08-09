@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
@@ -118,7 +119,7 @@ const signupSchema = z
     if (data.registrationAudience === "veterano" && !data.trainingDays) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Escolha 2, 3 ou 5 dias",
+        message: "Escolha 1, 2, 3 ou 5 dias",
         path: ["trainingDays"],
       });
     }
@@ -898,7 +899,7 @@ const Cadastro = () => {
                     <FormItem>
                       <FormLabel>Senha</FormLabel>
                       <FormControl>
-                        <Input type="password" autoComplete="new-password" placeholder="••••••••" {...field} />
+                        <PasswordInput autoComplete="new-password" placeholder="••••••••" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -912,7 +913,7 @@ const Cadastro = () => {
                     <FormItem>
                       <FormLabel>Confirmar senha</FormLabel>
                       <FormControl>
-                        <Input type="password" autoComplete="new-password" placeholder="••••••••" {...field} />
+                        <PasswordInput autoComplete="new-password" placeholder="••••••••" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
