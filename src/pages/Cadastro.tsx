@@ -15,21 +15,24 @@ import { callEdgeFunction, formatCurrency } from "@/lib/api";
 import { getHomePath } from "@/lib/access";
 import { isValidBrazilianWhatsapp, normalizeWhatsapp } from "@/lib/whatsapp-auth";
 import { isValidTaxId, normalizeTaxId } from "@/lib/tax-id";
-import { formatPlanOptionLabel, type PlanOption } from "@/lib/plans";
+import { type PlanOption } from "@/lib/plans";
 import { isMinor, validateStudentBirthFields } from "@/lib/student-age";
 import {
   buildCoverageMonths,
   estimatedInstallmentAmount,
   formatCoverageMonthLabel,
-  isMachineBillingMode,
   planDisplayTotal,
   resolveInstallments,
   type PrepaidPaymentMethod,
 } from "@/lib/prepaid-contracts";
 import {
+  BILLING_PERIOD_LABELS,
+  BILLING_PERIOD_ORDER,
   NEW_STUDENT_PAYMENT_LABELS,
   VETERAN_DAY_OPTIONS,
   filterPlansForRegistrationAudience,
+  groupNewStudentPlans,
+  paymentMethodsForNewStudentPlan,
   requiresAdminPaymentConfirmation,
   type RegistrationAudience,
 } from "@/lib/registration-flows";
@@ -67,7 +70,7 @@ const signupSchema = z
     confirmPassword: z.string().min(8).max(100),
     contractType: z.enum(["individual", "familiar"]),
     registrationAudience: z.enum(["new_student", "veterano"]).optional(),
-    trainingDays: z.enum(["2", "3", "5"]).optional(),
+    trainingDays: z.enum(["1", "2", "3", "5"]).optional(),
     familyMode: z.enum(["create", "join"]).optional(),
     familyName: z.string().trim().max(120).optional().or(z.literal("")),
     familyInviteCode: z.string().trim().max(20).optional().or(z.literal("")),
@@ -183,10 +186,13 @@ const Cadastro = () => {
   /** Show Individual|Familiar as soon as any public academy has the flag (do not wait for academy select). */
   const familyPlansAvailable = academies.some((a) => !!a.family_plans_enabled);
   const selectedPlan = plans.find((p) => p.id === selectedPlanId);
-  const machinePlan = isMachineBillingMode(selectedPlan?.billing_mode);
+  const planGroups = useMemo(() => groupNewStudentPlans(plans), [plans]);
+  const paymentMethodOptions = useMemo(
+    () => paymentMethodsForNewStudentPlan(selectedPlan),
+    [selectedPlan],
+  );
   const isNewStudent = registrationAudience === "new_student";
   const isVeteran = registrationAudience === "veterano";
-  const showPaymentFields = isNewStudent || machinePlan;
   const needsCardConfirm = requiresAdminPaymentConfirmation(paymentMethod);
   const requireTaxId = true;
 
@@ -291,11 +297,18 @@ const Cadastro = () => {
   }, [loadingAcademies, academies, selectedAcademyId, form]);
 
   useEffect(() => {
-    if (!showPaymentFields) {
+    if (!paymentMethod) return;
+    if (!paymentMethodOptions.includes(paymentMethod)) {
+      form.setValue("paymentMethod", undefined);
+    }
+  }, [paymentMethod, paymentMethodOptions, form]);
+
+  useEffect(() => {
+    if (!isNewStudent) {
       form.setValue("paymentMethod", undefined);
       form.setValue("installments", "1");
     }
-  }, [showPaymentFields, form]);
+  }, [isNewStudent, form]);
 
   useEffect(() => {
     form.setValue("planId", "");
@@ -649,38 +662,69 @@ const Cadastro = () => {
                   name="planId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Plano desejado (iniciante)</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value || undefined}
-                        disabled={!selectedAcademyId || loadingPlans || noActivePlans}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue
-                              placeholder={
-                                !selectedAcademyId
-                                  ? "Selecione a academia primeiro"
-                                  : loadingPlans
-                                    ? "Carregando planos..."
-                                    : noActivePlans
-                                      ? "Nenhum plano disponível"
-                                      : "Selecione o plano"
-                              }
-                            />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {plans.map((plan) => (
-                            <SelectItem key={plan.id} value={plan.id}>
-                              {formatPlanOptionLabel(plan)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormLabel>Plano desejado</FormLabel>
+                      {!selectedAcademyId ? (
+                        <p className="text-sm text-muted-foreground">Selecione a academia primeiro.</p>
+                      ) : loadingPlans ? (
+                        <p className="text-sm text-muted-foreground">Carregando planos...</p>
+                      ) : noActivePlans ? (
+                        <p className="text-sm text-muted-foreground">Nenhum plano disponível.</p>
+                      ) : (
+                        <div className="space-y-4">
+                          {BILLING_PERIOD_ORDER.map((period) => {
+                            const list = planGroups[period];
+                            if (!list.length) return null;
+                            return (
+                              <div key={period} className="space-y-2">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                  {BILLING_PERIOD_LABELS[period].replace(" (maquininha)", "")}
+                                </p>
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  {list.map((plan) => {
+                                    const selected = field.value === plan.id;
+                                    return (
+                                      <button
+                                        key={plan.id}
+                                        type="button"
+                                        onClick={() => field.onChange(plan.id)}
+                                        className={`rounded-xl border px-3 py-3 text-left transition ${
+                                          selected
+                                            ? "border-primary bg-primary/10"
+                                            : "border-border bg-card hover:border-primary/40"
+                                        }`}
+                                      >
+                                        <p className="text-sm font-medium">
+                                          {plan.training_days_per_week === 1
+                                            ? "1 dia"
+                                            : `${plan.training_days_per_week} dias`}
+                                        </p>
+                                        <p className="text-base font-semibold text-primary">
+                                          {formatCurrency(
+                                            Number(
+                                              plan.billing_mode === "machine_prepaid"
+                                                ? plan.package_total_amount ?? plan.monthly_price
+                                                : plan.monthly_price,
+                                            ),
+                                          )}
+                                        </p>
+                                        {period !== "mensal" ? (
+                                          <p className="text-[11px] text-muted-foreground">
+                                            {plan.duration_months} meses · maquininha
+                                          </p>
+                                        ) : (
+                                          <p className="text-[11px] text-muted-foreground">mensalidade</p>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                       <p className="text-xs text-muted-foreground">
-                        Cadastro fica pendente de revisão. Pagamento só é aprovado depois (Asaas ou
-                        confirmação do ADM na maquininha).
+                        Valores oficiais do catálogo. Cadastro fica pendente de aprovação do ADM.
                       </p>
                       <FormMessage />
                     </FormItem>
@@ -694,23 +738,24 @@ const Cadastro = () => {
                   name="trainingDays"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Frequência semanal</FormLabel>
+                      <FormLabel>Frequência desejada</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="2, 3 ou 5 dias" />
+                            <SelectValue placeholder="1, 2, 3 ou 5 dias" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           {VETERAN_DAY_OPTIONS.map((days) => (
                             <SelectItem key={days} value={String(days)}>
-                              {days} dias por semana
+                              {days === 1 ? "1 dia por semana" : `${days} dias por semana`}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                       <p className="text-xs text-muted-foreground">
-                        Após a análise do cadastro, a academia pedirá mensal, semestral ou anual.
+                        Plano e forma de pagamento serão definidos somente após a aprovação do
+                        administrador. Nenhum preço é exibido nesta etapa.
                       </p>
                       <FormMessage />
                     </FormItem>
@@ -726,16 +771,26 @@ const Cadastro = () => {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Forma de pagamento</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          disabled={!selectedPlanId}
+                        >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Selecione" />
+                              <SelectValue
+                                placeholder={
+                                  selectedPlanId
+                                    ? "Selecione"
+                                    : "Selecione o plano primeiro"
+                                }
+                              />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {Object.entries(NEW_STUDENT_PAYMENT_LABELS).map(([method, label]) => (
+                            {paymentMethodOptions.map((method) => (
                               <SelectItem key={method} value={method}>
-                                {label}
+                                {NEW_STUDENT_PAYMENT_LABELS[method] ?? method}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -815,7 +870,7 @@ const Cadastro = () => {
                 name="belt"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Graduação (faixa)</FormLabel>
+                    <FormLabel>Faixa atual</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
                         <SelectTrigger>

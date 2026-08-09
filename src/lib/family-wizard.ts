@@ -73,7 +73,7 @@ export function isValidDegrees(degrees: number): boolean {
 
 export function validatePractitionerSports(input: {
   belt: string;
-  degrees: number;
+  degrees?: number | null;
   trainingDays: number;
   label?: string;
 }): string | null {
@@ -81,7 +81,9 @@ export function validatePractitionerSports(input: {
   if (!isValidBelt(input.belt)) {
     return `Informe a faixa atual de cada ${label}.`;
   }
-  if (!isValidDegrees(input.degrees)) {
+  // Public signup collects belt only; degrees default to 0 for DB safety.
+  const degrees = input.degrees == null ? 0 : input.degrees;
+  if (!isValidDegrees(degrees)) {
     return `Quantidade de graus inválida (0 a ${MAX_BELT_DEGREES}).`;
   }
   if (input.trainingDays < 1 || input.trainingDays > 7) {
@@ -116,7 +118,7 @@ export function validateFamilyWizardMembers(
       linked.add(m.existingStudentId);
       const sports = validatePractitionerSports({
         belt: m.belt || "Branca",
-        degrees: m.degrees,
+        degrees: 0,
         trainingDays: m.trainingDays,
         label: "integrante vinculado",
       });
@@ -142,7 +144,7 @@ export function validateFamilyWizardMembers(
 
     const sports = validatePractitionerSports({
       belt: m.belt,
-      degrees: m.degrees,
+      degrees: 0,
       trainingDays: m.trainingDays,
       label: "integrante",
     });
@@ -159,7 +161,7 @@ export function buildFamilyWizardMemberPayload(members: FamilyWizardMemberDraft[
         full_name: m.fullName.trim() || undefined,
         training_days: m.trainingDays,
         belt: m.belt || undefined,
-        degrees: m.degrees,
+        degrees: 0,
         relationship: m.relationship.trim() || "integrante",
         notes: m.notes.trim() || null,
       };
@@ -168,7 +170,7 @@ export function buildFamilyWizardMemberPayload(members: FamilyWizardMemberDraft[
       full_name: m.fullName.trim(),
       birth_date: m.birthDate,
       belt: m.belt,
-      degrees: m.degrees,
+      degrees: 0,
       training_days: m.trainingDays,
       relationship: m.relationship.trim() || "integrante",
       guardian_name: isMinor(m.birthDate) ? m.guardianName.trim() || null : null,
@@ -190,7 +192,13 @@ export function countFamilyPractitioners(
   return (responsibleTrains ? 1 : 0) + membersCount;
 }
 
-export function formatBeltDegreesLabel(belt: string, degrees: number): string {
+export function formatBeltDegreesLabel(belt: string, degrees?: number | null): string {
+  // Public flows show belt only; degrees remain for ADM/history displays when provided.
+  if (degrees == null) return belt;
   const d = Number.isFinite(degrees) ? degrees : 0;
   return `${belt}, ${d} ${d === 1 ? "grau" : "graus"}`;
+}
+
+export function formatBeltOnlyLabel(belt: string): string {
+  return belt || "Branca";
 }

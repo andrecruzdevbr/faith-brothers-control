@@ -32,6 +32,7 @@ import { callEdgeFunction, formatCurrency, formatDateBR } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PlanCatalogManager } from "@/components/PlanCatalogManager";
 import { BILLING_STATUS_LABELS, PAGE_SIZE } from "@/lib/constants";
 import {
   formatBillingSettingsLabel,
@@ -527,6 +528,8 @@ const Financeiro = () => {
           </div>
         )}
       </div>
+
+      {isAdmin && academyId ? <PlanCatalogManager academyId={academyId} /> : null}
 
       {isAdmin && (
         <motion.div

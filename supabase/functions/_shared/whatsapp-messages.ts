@@ -13,30 +13,31 @@ export function buildRegistrationReceivedMessage(fullName: string): string {
 export function buildRegistrationApprovedMessage(fullName: string): string {
   const name = fullName.trim() || "aluno";
   return [
-    `Olá, ${name}! Seu cadastro foi aprovado pela academia.`,
+    `Olá, ${name}! Seu cadastro na Faith Brothers foi aprovado. 🥋`,
     "",
-    "Em breve você receberá as orientações financeiras (boleto ou confirmação de pagamento).",
+    "Seja bem-vindo(a)!",
     "",
-    "Faith Brothers Control 🥋",
+    "Seu acesso já foi liberado. Em caso de dúvidas, fale com a nossa equipe.",
   ].join("\n");
 }
 
 export function buildVeteranPeriodRequestMessage(fullName: string, trainingDays?: number | null): string {
   const name = fullName.trim() || "aluno";
-  const days = trainingDays === 2 || trainingDays === 3 || trainingDays === 5
-    ? `${trainingDays} dias`
-    : "a frequência escolhida";
+  const daysLabel =
+    trainingDays === 1
+      ? "1 dia"
+      : trainingDays === 2 || trainingDays === 3 || trainingDays === 5
+        ? `${trainingDays} dias`
+        : null;
   return [
-    `Olá, ${name}! Seu cadastro de veterano (${days}/semana) foi analisado.`,
+    `Olá, ${name}! Seu cadastro na Faith Brothers foi aprovado. 🥋`,
     "",
-    "Responda ou fale com a academia para escolher a modalidade:",
-    "1) Mensal (boleto)",
-    "2) Semestral (pagamento na maquininha)",
-    "3) Anual (pagamento na maquininha)",
+    daysLabel
+      ? `Você informou que pretende treinar ${daysLabel} por semana.`
+      : "Você informou a frequência desejada de treino.",
     "",
-    "Cartão/maquininha só é liberado após confirmação do administrador.",
-    "",
-    "Faith Brothers Control 🥋",
+    "Agora falta apenas definirmos seu plano e a forma de pagamento.",
+    "Nossa equipe dará continuidade a essa etapa.",
   ].join("\n");
 }
 

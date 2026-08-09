@@ -23,11 +23,50 @@ export type PendingPlanChange = {
   requested_plan_price?: number | null;
 };
 
-export const ACADEMY_REAL_PLANS = [
-  { name: "Plano 2 dias por semana", monthly_price: 210, training_days_per_week: 2 },
-  { name: "Plano 3 dias por semana", monthly_price: 230, training_days_per_week: 3 },
-  { name: "Plano 5 dias por semana", monthly_price: 250, training_days_per_week: 5 },
+export const TRAINING_DAY_OPTIONS = [1, 2, 3, 5] as const;
+export type TrainingDayOption = (typeof TRAINING_DAY_OPTIONS)[number];
+
+/** Official NEW_STUDENT commercial matrix (source of truth for tests; UI loads prices from DB). */
+export const OFFICIAL_NEW_STUDENT_CATALOG = [
+  { plan_kind: "mensal", training_days_per_week: 1, amount: 180, duration_months: 1, billing_mode: "asaas_monthly" },
+  { plan_kind: "mensal", training_days_per_week: 2, amount: 210, duration_months: 1, billing_mode: "asaas_monthly" },
+  { plan_kind: "mensal", training_days_per_week: 3, amount: 230, duration_months: 1, billing_mode: "asaas_monthly" },
+  { plan_kind: "mensal", training_days_per_week: 5, amount: 250, duration_months: 1, billing_mode: "asaas_monthly" },
+  { plan_kind: "trimestral", training_days_per_week: 1, amount: 480, duration_months: 3, billing_mode: "machine_prepaid" },
+  { plan_kind: "trimestral", training_days_per_week: 2, amount: 540, duration_months: 3, billing_mode: "machine_prepaid" },
+  { plan_kind: "trimestral", training_days_per_week: 3, amount: 630, duration_months: 3, billing_mode: "machine_prepaid" },
+  { plan_kind: "trimestral", training_days_per_week: 5, amount: 690, duration_months: 3, billing_mode: "machine_prepaid" },
+  { plan_kind: "semestral", training_days_per_week: 1, amount: 990, duration_months: 6, billing_mode: "machine_prepaid" },
+  { plan_kind: "semestral", training_days_per_week: 2, amount: 1155, duration_months: 6, billing_mode: "machine_prepaid" },
+  { plan_kind: "semestral", training_days_per_week: 3, amount: 1260, duration_months: 6, billing_mode: "machine_prepaid" },
+  { plan_kind: "semestral", training_days_per_week: 5, amount: 1350, duration_months: 6, billing_mode: "machine_prepaid" },
+  { plan_kind: "anual", training_days_per_week: 1, amount: 1980, duration_months: 12, billing_mode: "machine_prepaid" },
+  { plan_kind: "anual", training_days_per_week: 2, amount: 2310, duration_months: 12, billing_mode: "machine_prepaid" },
+  { plan_kind: "anual", training_days_per_week: 3, amount: 2500, duration_months: 12, billing_mode: "machine_prepaid" },
+  { plan_kind: "anual", training_days_per_week: 5, amount: 2750, duration_months: 12, billing_mode: "machine_prepaid" },
 ] as const;
+
+/** @deprecated Use OFFICIAL_NEW_STUDENT_CATALOG — kept for older monthly-only references. */
+export const ACADEMY_REAL_PLANS = OFFICIAL_NEW_STUDENT_CATALOG.filter(
+  (p) => p.plan_kind === "mensal",
+).map((p) => ({
+  name: `Plano ${p.training_days_per_week} ${p.training_days_per_week === 1 ? "dia" : "dias"} por semana`,
+  monthly_price: p.amount,
+  training_days_per_week: p.training_days_per_week,
+}));
+
+export function planCommercialAmount(plan: {
+  monthly_price: number;
+  package_total_amount?: number | null;
+  billing_mode?: string | null;
+}): number {
+  const isPackage =
+    plan.billing_mode === "machine_prepaid" || plan.billing_mode === "machine_dropin";
+  if (isPackage && plan.package_total_amount != null) {
+    return Number(plan.package_total_amount);
+  }
+  return Number(plan.monthly_price);
+}
 
 export function formatPlanOptionLabel(plan: {
   name: string;
@@ -36,18 +75,14 @@ export function formatPlanOptionLabel(plan: {
   billing_mode?: string | null;
   duration_months?: number | null;
 }): string {
-  const isPackage =
-    plan.billing_mode === "machine_prepaid" || plan.billing_mode === "machine_dropin";
-  const amount = isPackage && plan.package_total_amount != null
-    ? Number(plan.package_total_amount)
-    : Number(plan.monthly_price);
+  const amount = planCommercialAmount(plan);
   const formatted = Number.isFinite(amount)
     ? amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
     : "R$ —";
   const suffix =
-    isPackage && plan.duration_months && plan.duration_months > 0
+    plan.billing_mode === "machine_prepaid" && plan.duration_months && plan.duration_months > 0
       ? ` · ${plan.duration_months} meses`
-      : isPackage && plan.duration_months === 0
+      : plan.billing_mode === "machine_dropin" && plan.duration_months === 0
         ? " · avulso"
         : "";
   return `${plan.name} — ${formatted}${suffix}`;
@@ -96,4 +131,17 @@ export function billingUsesApprovedPlanOnly(
 ): string | null {
   void pendingRequestPlanId;
   return studentPlanId ?? null;
+}
+
+export function matchesOfficialNewStudentEntry(
+  plan: PlanOption,
+  expected: (typeof OFFICIAL_NEW_STUDENT_CATALOG)[number],
+): boolean {
+  if ((plan.audience ?? "").toLowerCase() === "veterano") return false;
+  const kind = (plan.plan_kind ?? "mensal").toLowerCase();
+  if (kind !== expected.plan_kind) return false;
+  if (Number(plan.training_days_per_week) !== expected.training_days_per_week) return false;
+  if (Number(plan.duration_months ?? 1) !== expected.duration_months) return false;
+  const amount = planCommercialAmount(plan);
+  return Math.abs(amount - expected.amount) < 0.01;
 }

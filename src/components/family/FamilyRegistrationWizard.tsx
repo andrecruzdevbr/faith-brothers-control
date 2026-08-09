@@ -24,11 +24,10 @@ import {
 } from "@/lib/prepaid-contracts";
 import {
   FAMILY_RELATIONSHIPS,
-  MAX_BELT_DEGREES,
   buildFamilyWizardMemberPayload,
   countFamilyPractitioners,
   createEmptyMemberDraft,
-  formatBeltDegreesLabel,
+  formatBeltOnlyLabel,
   validateFamilyWizardMembers,
   validatePractitionerSports,
   type FamilyWizardMemberDraft,
@@ -83,7 +82,6 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
   const [billingTaxId, setBillingTaxId] = useState("");
   const [responsibleTrains, setResponsibleTrains] = useState<boolean | null>(null);
   const [belt, setBelt] = useState("Branca");
-  const [degrees, setDegrees] = useState(0);
   const [trainingDays, setTrainingDays] = useState(3);
   const [guardianName, setGuardianName] = useState("");
   const [familyName, setFamilyName] = useState("");
@@ -202,7 +200,7 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
     if (!isValidTaxId(billingTaxId)) return "CPF/CNPJ de cobrança inválido.";
     if (responsibleTrains === null) return "Informe se o responsável financeiro também vai treinar.";
     if (responsibleTrains) {
-      const sports = validatePractitionerSports({ belt, degrees, trainingDays, label: "responsável" });
+      const sports = validatePractitionerSports({ belt, degrees: 0, trainingDays, label: "responsável" });
       if (sports) return sports;
     }
     if (password.length < 8) return "A senha precisa ter pelo menos 8 caracteres.";
@@ -257,7 +255,7 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
       }
       const sports = validatePractitionerSports({
         belt: draftMember.belt || "Branca",
-        degrees: draftMember.degrees,
+        degrees: 0,
         trainingDays: draftMember.trainingDays,
       });
       if (sports) {
@@ -378,7 +376,7 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
           family_name: familyName.trim() || `Família ${fullName.trim()}`,
           responsible_trains: responsibleTrains === true,
           belt: responsibleTrains ? belt : null,
-          degrees: responsibleTrains ? degrees : null,
+          degrees: responsibleTrains ? 0 : null,
           responsible_weekly_frequency: responsibleTrains ? trainingDays : null,
           members: buildFamilyWizardMemberPayload(members),
         },
@@ -438,8 +436,8 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
 
   const sportsFields = (
     prefix: string,
-    values: { belt: string; degrees: number; trainingDays: number },
-    onChange: (patch: Partial<{ belt: string; degrees: number; trainingDays: number }>) => void,
+    values: { belt: string; trainingDays: number },
+    onChange: (patch: Partial<{ belt: string; trainingDays: number }>) => void,
   ) => (
     <>
       <div className="space-y-1.5">
@@ -452,24 +450,6 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
             {BELTS.map((b) => (
               <SelectItem key={`${prefix}-${b}`} value={b}>
                 {b}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="space-y-1.5">
-        <Label>Quantidade de graus na faixa</Label>
-        <Select
-          value={String(values.degrees)}
-          onValueChange={(v) => onChange({ degrees: Number(v) })}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {Array.from({ length: MAX_BELT_DEGREES + 1 }, (_, i) => i).map((n) => (
-              <SelectItem key={`${prefix}-deg-${n}`} value={String(n)}>
-                {n} {n === 1 ? "grau" : "graus"}
               </SelectItem>
             ))}
           </SelectContent>
@@ -591,9 +571,8 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
           {responsibleTrains ? (
             <div className="space-y-3 rounded-xl border border-border p-3">
               <p className="text-sm font-medium">Dados esportivos do responsável</p>
-              {sportsFields("resp", { belt, degrees, trainingDays }, (patch) => {
+              {sportsFields("resp", { belt, trainingDays }, (patch) => {
                 if (patch.belt != null) setBelt(patch.belt);
-                if (patch.degrees != null) setDegrees(patch.degrees);
                 if (patch.trainingDays != null) setTrainingDays(patch.trainingDays);
               })}
             </div>
@@ -665,7 +644,7 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
             </p>
             <p className="text-sm text-muted-foreground">
               {responsibleTrains
-                ? `Treina · ${formatBeltDegreesLabel(belt, degrees)} · ${trainingDays}x/sem`
+                ? `Treina · ${formatBeltOnlyLabel(belt)} · ${trainingDays}x/sem`
                 : "Não treina (apenas responsável financeiro)"}
             </p>
           </div>
@@ -694,7 +673,7 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {m.birthDate ? `Nasc. ${m.birthDate} · ` : ""}
-                          {formatBeltDegreesLabel(m.belt || "Branca", m.degrees)} · {m.trainingDays}x/sem
+                          {formatBeltOnlyLabel(m.belt || "Branca")} · {m.trainingDays}x/sem
                           {m.relationship ? ` · ${m.relationship}` : ""}
                           {m.mode === "link" ? " · vinculado" : ""}
                         </p>
@@ -764,14 +743,13 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
                               fullName: hit.full_name,
                               birthDate: hit.birth_date ?? "",
                               belt: hit.belt || d.belt || "Branca",
-                              degrees: hit.degrees ?? d.degrees ?? 0,
+                              degrees: 0,
                             }))
                           }
                         >
                           {hit.full_name}
                           {hit.birth_date ? ` · nasc. ${hit.birth_date}` : ""}
                           {hit.belt ? ` · ${hit.belt}` : ""}
-                          {typeof hit.degrees === "number" ? ` · ${hit.degrees}º` : ""}
                         </button>
                       </li>
                     ))}
@@ -779,9 +757,9 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
                   {draftMember.existingStudentId ? (
                     <div className="space-y-3">
                       <p className="text-xs text-muted-foreground">
-                        Faixa e graus atuais serão preservados (
-                        {formatBeltDegreesLabel(draftMember.belt || "Branca", draftMember.degrees)}
-                        ). Informe apenas frequência neste contrato e parentesco.
+                        Faixa atual será preservada (
+                        {formatBeltOnlyLabel(draftMember.belt || "Branca")}
+                        ). Graus não são solicitados no cadastro. Informe apenas frequência neste contrato e parentesco.
                       </p>
                       <div className="space-y-1.5">
                         <Label>Frequência semanal</Label>
@@ -1010,8 +988,7 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
             <ul className="list-disc pl-5 space-y-1">
               {responsibleTrains ? (
                 <li>
-                  {fullName} (responsável) — {trainingDays} dias, faixa {belt.toLowerCase()}, {degrees}{" "}
-                  {degrees === 1 ? "grau" : "graus"}
+                  {fullName} (responsável) — {trainingDays} dias, faixa {belt.toLowerCase()}
                 </li>
               ) : (
                 <li className="list-none -ml-5 text-muted-foreground">
@@ -1021,8 +998,7 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
               {members.map((m) => (
                 <li key={m.key}>
                   {m.fullName || "Aluno vinculado"} — {m.trainingDays} dias, faixa{" "}
-                  {(m.belt || "Branca").toLowerCase()}, {m.degrees}{" "}
-                  {m.degrees === 1 ? "grau" : "graus"}
+                  {(m.belt || "Branca").toLowerCase()}
                   {m.relationship ? ` · ${m.relationship}` : ""}
                 </li>
               ))}

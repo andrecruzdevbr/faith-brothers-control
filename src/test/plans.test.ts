@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ACADEMY_REAL_PLANS,
+  OFFICIAL_NEW_STUDENT_CATALOG,
   billingUsesApprovedPlanOnly,
   filterActivePlans,
   formatPendingPlanChangeLabel,
@@ -13,14 +14,15 @@ import { mapRegisterStudentRpcError } from "../../supabase/functions/_shared/reg
 import { getMissingBillingSkipStatus } from "../../supabase/functions/_shared/billing-settings.ts";
 
 describe("academy real plans", () => {
-  it("defines the 3 official active plans with correct prices", () => {
-    expect(ACADEMY_REAL_PLANS).toHaveLength(3);
-    expect(ACADEMY_REAL_PLANS.map((p) => p.monthly_price)).toEqual([210, 230, 250]);
-    expect(ACADEMY_REAL_PLANS.map((p) => p.training_days_per_week)).toEqual([2, 3, 5]);
+  it("defines official monthly new_student prices including 1 day", () => {
+    expect(ACADEMY_REAL_PLANS).toHaveLength(4);
+    expect(ACADEMY_REAL_PLANS.map((p) => p.monthly_price)).toEqual([180, 210, 230, 250]);
+    expect(ACADEMY_REAL_PLANS.map((p) => p.training_days_per_week)).toEqual([1, 2, 3, 5]);
+    expect(OFFICIAL_NEW_STUDENT_CATALOG).toHaveLength(16);
   });
 
   it("formats signup labels with name and currency", () => {
-    const label = formatPlanOptionLabel(ACADEMY_REAL_PLANS[0]);
+    const label = formatPlanOptionLabel(ACADEMY_REAL_PLANS[1]);
     expect(label).toContain("Plano 2 dias por semana");
     expect(label).toContain("210");
   });

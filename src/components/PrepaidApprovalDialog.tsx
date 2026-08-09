@@ -231,6 +231,15 @@ export function PrepaidApprovalDialog({ student, onDone }: Props) {
             // WA queue is best-effort; payment already confirmed
           }
         }
+        try {
+          await callEdgeFunction(
+            "notify-registration-event",
+            { student_id: student.id, event: "approved" },
+            { requireAuth: true },
+          );
+        } catch {
+          /* registration_approved to responsible is best-effort / idempotent */
+        }
         toast({
           title: "Família liberada",
           description: "Pagamento confirmado. Meses liberados para os integrantes selecionados.",
@@ -255,6 +264,15 @@ export function PrepaidApprovalDialog({ student, onDone }: Props) {
           } catch {
             // WA queue is best-effort; payment already confirmed
           }
+        }
+        try {
+          await callEdgeFunction(
+            "notify-registration-event",
+            { student_id: student.id, event: "approved" },
+            { requireAuth: true },
+          );
+        } catch {
+          /* registration_approved is best-effort / idempotent */
         }
         toast({
           title: "Pagamento aprovado",

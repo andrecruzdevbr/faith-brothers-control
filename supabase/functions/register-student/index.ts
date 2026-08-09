@@ -167,8 +167,8 @@ Deno.serve(async (req) => {
     const password = String(body.password ?? "");
     const academyId = academyIdEarly;
     const belt = String(body.belt ?? "Branca").trim() || "Branca";
-    const degrees =
-      body.degrees == null || body.degrees === undefined ? 0 : Number(body.degrees);
+    // Public registration collects belt only; degrees stay 0 until ADM updates.
+    const degrees = 0;
     const rawTaxId = body.billing_tax_id == null ? "" : String(body.billing_tax_id);
     const billingTaxId = rawTaxId ? normalizeTaxId(rawTaxId) : "";
     const planId = String(body.plan_id ?? "").trim();
@@ -212,7 +212,12 @@ Deno.serve(async (req) => {
         ? null
         : Number(body.responsible_weekly_frequency);
     const responsibleTrains = body.responsible_trains !== false;
-    const wizardMembers = Array.isArray(body.members) ? body.members : [];
+    const wizardMembers = Array.isArray(body.members)
+      ? body.members.map((m) => ({
+          ...m,
+          degrees: 0,
+        }))
+      : [];
     const isFamilyWizard = contractType === "familiar" && familyMode === "wizard";
     const joiningFamily = contractType === "familiar" && familyMode === "join";
 
@@ -289,9 +294,9 @@ Deno.serve(async (req) => {
     }
 
     if (isVeteran) {
-      if (requestedTrainingDays !== 2 && requestedTrainingDays !== 3 && requestedTrainingDays !== 5) {
+      if (requestedTrainingDays !== 1 && requestedTrainingDays !== 2 && requestedTrainingDays !== 3 && requestedTrainingDays !== 5) {
         return new Response(
-          JSON.stringify({ error: "Veterano: escolha 2, 3 ou 5 dias por semana." }),
+          JSON.stringify({ error: "Veterano: escolha 1, 2, 3 ou 5 dias por semana." }),
           { status: 400, headers },
         );
       }

@@ -5,6 +5,7 @@ import {
   createEmptyMemberDraft,
   familyPerMemberShare,
   formatBeltDegreesLabel,
+  formatBeltOnlyLabel,
   validateFamilyWizardMembers,
   validatePractitionerSports,
 } from "@/lib/family-wizard";
@@ -18,22 +19,23 @@ describe("family registration v2", () => {
     expect(validateFamilyWizardMembers([], { responsibleTrains: false }).ok).toBe(false);
   });
 
-  it("accepts new members with belt/degrees and without WhatsApp/CPF", () => {
+  it("accepts new members with belt only (degrees default 0) and without WhatsApp/CPF", () => {
     const member = {
       ...createEmptyMemberDraft(3),
       fullName: "Filho Um",
       birthDate: "2012-05-01",
       belt: "Cinza",
-      degrees: 1,
+      degrees: 0,
       relationship: "filho",
       guardianName: "Responsável Legal",
     };
     expect(validateFamilyWizardMembers([member], { responsibleTrains: false }).ok).toBe(true);
   });
 
-  it("rejects invalid degrees", () => {
+  it("defaults degrees to 0 and rejects invalid degrees when provided", () => {
     expect(validatePractitionerSports({ belt: "Branca", degrees: 5, trainingDays: 3 })).toBeTruthy();
     expect(validatePractitionerSports({ belt: "Branca", degrees: 0, trainingDays: 3 })).toBeNull();
+    expect(validatePractitionerSports({ belt: "Branca", trainingDays: 3 })).toBeNull();
   });
 
   it("rejects duplicate linked students", () => {
@@ -89,7 +91,7 @@ describe("family registration v2", () => {
     expect(payload[0]).not.toHaveProperty("billing_tax_id");
     expect(payload[0]).not.toHaveProperty("payment_method");
     expect(payload[0]).not.toHaveProperty("whatsapp");
-    expect(payload[1]).toMatchObject({ existing_student_id: "abc", training_days: 3, degrees: 1 });
+    expect(payload[1]).toMatchObject({ existing_student_id: "abc", training_days: 3, degrees: 0 });
   });
 
   it("counts practitioners without multiplying revenue share incorrectly", () => {
@@ -97,5 +99,6 @@ describe("family registration v2", () => {
     expect(countFamilyPractitioners(false, 2)).toBe(2);
     expect(familyPerMemberShare(900, 3)).toBe(300);
     expect(formatBeltDegreesLabel("Azul", 2)).toBe("Azul, 2 graus");
+    expect(formatBeltOnlyLabel("Azul")).toBe("Azul");
   });
 });

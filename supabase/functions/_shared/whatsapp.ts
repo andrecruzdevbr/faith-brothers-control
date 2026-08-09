@@ -173,8 +173,13 @@ export async function queueWhatsApp(params: QueueWhatsAppParams): Promise<QueueW
     }
   }
 
-  // Idempotency: one active/sent registration message per student.
-  if (params.studentId && params.messageType === "registration") {
+  // Legacy single-registration guard ONLY when no idempotency key is provided.
+  // With keys (received / approved / veteran_period_request), each event is independent.
+  if (
+    params.studentId &&
+    params.messageType === "registration" &&
+    !params.idempotencyKey
+  ) {
     const { data: existing } = await params.supabase
       .from("whatsapp_messages")
       .select("id, status, external_id")

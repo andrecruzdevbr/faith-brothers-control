@@ -159,6 +159,7 @@ const Alunos = () => {
   const [veteranPeriodStudent, setVeteranPeriodStudent] = useState<{
     id: string;
     full_name: string;
+    academy_id?: string | null;
     requested_training_days?: number | null;
   } | null>(null);
 
@@ -265,25 +266,39 @@ const Alunos = () => {
             "notify-registration-event",
             {
               student_id: studentId,
-              event: opts?.isVeteran ? "veteran_period_request" : "approved",
+              event: "approved",
             },
             { requireAuth: true },
           );
         } catch {
           /* WhatsApp queue is best-effort */
         }
+        if (opts?.isVeteran) {
+          try {
+            await callEdgeFunction(
+              "notify-registration-event",
+              {
+                student_id: studentId,
+                event: "veteran_period_request",
+              },
+              { requireAuth: true },
+            );
+          } catch {
+            /* commercial follow-up WA is best-effort */
+          }
+        }
       }
 
       toast({
         title: approve
           ? opts?.isVeteran
-            ? "Cadastro veterano analisado"
+            ? "Cadastro veterano aprovado"
             : "Aluno aprovado"
           : "Aluno rejeitado",
         description: approve
           ? opts?.isVeteran
-            ? "WhatsApp solicitado com mensal/semestral/anual. Defina a modalidade a seguir."
-            : "Cadastro aprovado. Financeiro segue boleto Asaas ou confirmação ADM se for cartão."
+            ? "WhatsApp de aprovação enviado. Defina plano e pagamento quando os valores estiverem cadastrados."
+            : "WhatsApp de aprovação enviado. Financeiro segue boleto Asaas ou confirmação ADM se for cartão."
           : "O cadastro foi rejeitado.",
       });
       await queryClient.invalidateQueries({ queryKey: ["students"] });
@@ -561,6 +576,7 @@ const Alunos = () => {
                                       setVeteranPeriodStudent({
                                         id: aluno.id,
                                         full_name: aluno.full_name,
+                                        academy_id: aluno.academy_id,
                                         requested_training_days: (aluno as {
                                           requested_training_days?: number | null;
                                         }).requested_training_days,
@@ -720,7 +736,7 @@ const Alunos = () => {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Modalidade do veterano</DialogTitle>
+            <DialogTitle>Plano e pagamento do veterano</DialogTitle>
           </DialogHeader>
           {veteranPeriodStudent && (
             <VeteranPeriodDialog
