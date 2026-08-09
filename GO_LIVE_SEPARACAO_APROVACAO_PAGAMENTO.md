@@ -61,6 +61,6 @@ Publicada somente:
 | Gabriel pronto para teste manual | SIM |
 | registration_approved em produção | SIM (edge) |
 | olhinho de senha em produção | SIM (após deploy Vercel) |
-| GitHub atualizado | SIM |
-| Vercel atualizado | (validar HTTP 200) |
+| GitHub atualizado | SIM (`43dbea5`) |
+| Vercel atualizado | SIM (HTTP 200; chunk `password-input`) |
 | produção preservada | SIM |
