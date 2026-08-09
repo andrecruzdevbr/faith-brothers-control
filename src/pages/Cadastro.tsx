@@ -27,17 +27,15 @@ import {
   type PrepaidPaymentMethod,
 } from "@/lib/prepaid-contracts";
 import {
-  BILLING_PERIOD_LABELS,
-  BILLING_PERIOD_ORDER,
   NEW_STUDENT_PAYMENT_LABELS,
   VETERAN_DAY_OPTIONS,
   filterPlansForRegistrationAudience,
-  groupNewStudentPlans,
   paymentMethodsForNewStudentPlan,
   requiresAdminPaymentConfirmation,
   type RegistrationAudience,
 } from "@/lib/registration-flows";
 import { FamilyRegistrationWizard } from "@/components/family/FamilyRegistrationWizard";
+import { NewStudentPlanAccordion } from "@/components/NewStudentPlanAccordion";
 
 const BELTS = [
   "Branca",
@@ -187,7 +185,6 @@ const Cadastro = () => {
   /** Show Individual|Familiar as soon as any public academy has the flag (do not wait for academy select). */
   const familyPlansAvailable = academies.some((a) => !!a.family_plans_enabled);
   const selectedPlan = plans.find((p) => p.id === selectedPlanId);
-  const planGroups = useMemo(() => groupNewStudentPlans(plans), [plans]);
   const paymentMethodOptions = useMemo(
     () => paymentMethodsForNewStudentPlan(selectedPlan),
     [selectedPlan],
@@ -663,7 +660,7 @@ const Cadastro = () => {
                   name="planId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Plano desejado</FormLabel>
+                      <FormLabel className="sr-only">Plano desejado</FormLabel>
                       {!selectedAcademyId ? (
                         <p className="text-sm text-muted-foreground">Selecione a academia primeiro.</p>
                       ) : loadingPlans ? (
@@ -671,58 +668,15 @@ const Cadastro = () => {
                       ) : noActivePlans ? (
                         <p className="text-sm text-muted-foreground">Nenhum plano disponível.</p>
                       ) : (
-                        <div className="space-y-4">
-                          {BILLING_PERIOD_ORDER.map((period) => {
-                            const list = planGroups[period];
-                            if (!list.length) return null;
-                            return (
-                              <div key={period} className="space-y-2">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                  {BILLING_PERIOD_LABELS[period].replace(" (maquininha)", "")}
-                                </p>
-                                <div className="grid gap-2 sm:grid-cols-2">
-                                  {list.map((plan) => {
-                                    const selected = field.value === plan.id;
-                                    return (
-                                      <button
-                                        key={plan.id}
-                                        type="button"
-                                        onClick={() => field.onChange(plan.id)}
-                                        className={`rounded-xl border px-3 py-3 text-left transition ${
-                                          selected
-                                            ? "border-primary bg-primary/10"
-                                            : "border-border bg-card hover:border-primary/40"
-                                        }`}
-                                      >
-                                        <p className="text-sm font-medium">
-                                          {plan.training_days_per_week === 1
-                                            ? "1 dia"
-                                            : `${plan.training_days_per_week} dias`}
-                                        </p>
-                                        <p className="text-base font-semibold text-primary">
-                                          {formatCurrency(
-                                            Number(
-                                              plan.billing_mode === "machine_prepaid"
-                                                ? plan.package_total_amount ?? plan.monthly_price
-                                                : plan.monthly_price,
-                                            ),
-                                          )}
-                                        </p>
-                                        {period !== "mensal" ? (
-                                          <p className="text-[11px] text-muted-foreground">
-                                            {plan.duration_months} meses · maquininha
-                                          </p>
-                                        ) : (
-                                          <p className="text-[11px] text-muted-foreground">mensalidade</p>
-                                        )}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
+                        <NewStudentPlanAccordion
+                          plans={plans}
+                          value={field.value}
+                          onChange={(planId) => {
+                            field.onChange(planId);
+                            form.setValue("paymentMethod", undefined);
+                            form.setValue("installments", "1");
+                          }}
+                        />
                       )}
                       <p className="text-xs text-muted-foreground">
                         Valores oficiais do catálogo. Cadastro fica pendente de aprovação do ADM.
@@ -764,7 +718,7 @@ const Cadastro = () => {
                 />
               ) : null}
 
-              {isNewStudent ? (
+              {isNewStudent && selectedPlanId ? (
                 <>
                   <FormField
                     control={form.control}
@@ -775,17 +729,10 @@ const Cadastro = () => {
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
-                          disabled={!selectedPlanId}
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue
-                                placeholder={
-                                  selectedPlanId
-                                    ? "Selecione"
-                                    : "Selecione o plano primeiro"
-                                }
-                              />
+                              <SelectValue placeholder="Selecione" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>

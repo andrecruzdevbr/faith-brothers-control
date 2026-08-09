@@ -23,12 +23,65 @@ export const BILLING_PERIOD_LABELS: Record<BillingPeriodChoice, string> = {
   anual: "Anual (maquininha)",
 };
 
+/** Short modality title for accordion headers (no machine suffix). */
+export function billingPeriodTitle(period: BillingPeriodChoice): string {
+  return BILLING_PERIOD_LABELS[period].replace(" (maquininha)", "");
+}
+
 export const BILLING_PERIOD_ORDER: BillingPeriodChoice[] = [
   "mensal",
   "trimestral",
   "semestral",
   "anual",
 ];
+
+export function formatTrainingDaysLabel(days: number | null | undefined): string {
+  const n = Number(days ?? 0);
+  if (n === 1) return "1 dia por semana";
+  if (n > 0) return `${n} dias por semana`;
+  return "Frequência não informada";
+}
+
+export function formatPlanDurationLabel(plan: PlanOption): string {
+  const kind = resolvePlanKind(plan);
+  const months = Number(plan.duration_months ?? 0);
+  if (kind === "mensal" || months <= 1) return "1 mês";
+  if (months > 0) return `${months} meses`;
+  return "";
+}
+
+export type SelectedPlanSummary = {
+  period: BillingPeriodChoice | "outro";
+  periodTitle: string;
+  daysLabel: string;
+  amount: number;
+  durationLabel: string;
+  planId: string;
+};
+
+export function buildSelectedPlanSummary(plan: PlanOption | null | undefined): SelectedPlanSummary | null {
+  if (!plan?.id) return null;
+  const period = resolvePlanKind(plan);
+  const amount =
+    plan.billing_mode === "machine_prepaid"
+      ? Number(plan.package_total_amount ?? plan.monthly_price ?? 0)
+      : Number(plan.monthly_price ?? 0);
+  return {
+    period,
+    periodTitle: period === "outro" ? "Plano" : billingPeriodTitle(period),
+    daysLabel: formatTrainingDaysLabel(plan.training_days_per_week),
+    amount,
+    durationLabel: formatPlanDurationLabel(plan),
+    planId: plan.id,
+  };
+}
+
+/** Accordion sections present when catalog has plans for that modality. */
+export function listOpenablePlanPeriods(
+  groups: Record<BillingPeriodChoice, PlanOption[]>,
+): BillingPeriodChoice[] {
+  return BILLING_PERIOD_ORDER.filter((period) => (groups[period]?.length ?? 0) > 0);
+}
 
 export const NEW_STUDENT_PAYMENT_LABELS: Record<string, string> = {
   boleto: "Mensal / Boleto (Asaas)",
