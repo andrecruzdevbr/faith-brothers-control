@@ -225,7 +225,7 @@ export function PrepaidApprovalDialog({ student, onDone }: Props) {
           try {
             await callEdgeFunction("notify-contract-approved", {
               contract_id: contractRow.id,
-              send_immediately: false,
+              send_immediately: true,
             });
           } catch {
             // WA queue is best-effort; payment already confirmed
@@ -250,7 +250,7 @@ export function PrepaidApprovalDialog({ student, onDone }: Props) {
           try {
             await callEdgeFunction("notify-contract-approved", {
               contract_id: contractId,
-              send_immediately: false,
+              send_immediately: true,
             });
           } catch {
             // WA queue is best-effort; payment already confirmed

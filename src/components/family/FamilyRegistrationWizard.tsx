@@ -56,6 +56,10 @@ type SearchHit = {
 
 type Props = {
   onBackToTypeChoice: () => void;
+  /** Admin panel: cadastral approve + auth required; password generated server-side. */
+  adminCreated?: boolean;
+  lockedAcademyId?: string;
+  onSuccess?: () => void;
 };
 
 const STEP_LABELS = [
@@ -66,7 +70,12 @@ const STEP_LABELS = [
   "Resumo",
 ] as const;
 
-export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
+export function FamilyRegistrationWizard({
+  onBackToTypeChoice,
+  adminCreated = false,
+  lockedAcademyId,
+  onSuccess,
+}: Props) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [step, setStep] = useState(0);
@@ -89,7 +98,7 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  const [academyId, setAcademyId] = useState("");
+  const [academyId, setAcademyId] = useState(lockedAcademyId ?? "");
   const [planId, setPlanId] = useState("");
 
   const [paymentMethod, setPaymentMethod] = useState<PrepaidPaymentMethod | "">("");
@@ -119,14 +128,16 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
       } else {
         const list = ((data ?? []) as AcademyOption[]).filter((a) => !!a.family_plans_enabled);
         setAcademies(list);
-        if (list.length === 1) {
+        if (lockedAcademyId) {
+          setAcademyId(lockedAcademyId);
+        } else if (list.length === 1) {
           setAcademyId(list[0].id);
         }
       }
       setLoadingAcademies(false);
     };
     void load();
-  }, [toast]);
+  }, [toast, lockedAcademyId]);
 
   useEffect(() => {
     setPlanId("");
@@ -204,8 +215,10 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
       const sports = validatePractitionerSports({ belt, degrees: 0, trainingDays, label: "responsável" });
       if (sports) return sports;
     }
-    if (password.length < 8) return "A senha precisa ter pelo menos 8 caracteres.";
-    if (password !== confirmPassword) return "As senhas não conferem.";
+    if (!adminCreated) {
+      if (password.length < 8) return "A senha precisa ter pelo menos 8 caracteres.";
+      if (password !== confirmPassword) return "As senhas não conferem.";
+    }
     return null;
   };
 
@@ -299,7 +312,7 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
       const data = await callEdgeFunction<{ students: SearchHit[] }>(
         "register-student",
         { action: "search_students", academy_id: academyId, query: searchQuery },
-        { requireAuth: false },
+        { requireAuth: adminCreated },
       );
       setSearchHits(data.students ?? []);
     } catch (err) {
@@ -361,9 +374,10 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
         {
           contract_type: "familiar",
           family_mode: "wizard",
+          admin_created: adminCreated || undefined,
           full_name: fullName.trim(),
           whatsapp: normalizeWhatsapp(whatsapp),
-          password,
+          ...(adminCreated ? {} : { password }),
           academy_id: academyId,
           plan_id: planId,
           birth_date: birthDate,
@@ -381,13 +395,22 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
           responsible_weekly_frequency: responsibleTrains ? trainingDays : null,
           members: buildFamilyWizardMemberPayload(members),
         },
-        { requireAuth: false },
+        { requireAuth: adminCreated },
       );
-      toast({
-        title: "Cadastro familiar enviado",
-        description: "Aguarde a academia confirmar o pagamento. Nenhum boleto é gerado agora.",
-      });
-      navigate("/login", { replace: true });
+      if (adminCreated) {
+        toast({
+          title: "Família cadastrada",
+          description:
+            "Cadastro aprovado cadastralmente. Pagamento (se houver) continua em etapa separada.",
+        });
+        onSuccess?.();
+      } else {
+        toast({
+          title: "Cadastro familiar enviado",
+          description: "Aguarde a academia confirmar o pagamento. Nenhum boleto é gerado agora.",
+        });
+        navigate("/login", { replace: true });
+      }
     } catch (err) {
       toast({
         title: "Não foi possível enviar o cadastro",
@@ -578,18 +601,30 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
               })}
             </div>
           ) : null}
-          <div className="space-y-1.5">
-            <Label>Senha de acesso</Label>
-            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Confirmar senha</Label>
-            <PasswordInput
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
+          {!adminCreated ? (
+            <>
+              <div className="space-y-1.5">
+                <Label>Senha de acesso</Label>
+                <PasswordInput
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Confirmar senha</Label>
+                <PasswordInput
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Acesso: senha gerada no servidor. O responsável usa “Esqueci minha senha”.
+            </p>
+          )}
         </div>
       ) : null}
 
@@ -597,7 +632,11 @@ export function FamilyRegistrationWizard({ onBackToTypeChoice }: Props) {
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label>Academia</Label>
-            <Select value={academyId || undefined} onValueChange={setAcademyId} disabled={loadingAcademies}>
+            <Select
+              value={academyId || undefined}
+              onValueChange={setAcademyId}
+              disabled={loadingAcademies || !!lockedAcademyId}
+            >
               <SelectTrigger>
                 <SelectValue placeholder={loadingAcademies ? "Carregando..." : "Selecione"} />
               </SelectTrigger>

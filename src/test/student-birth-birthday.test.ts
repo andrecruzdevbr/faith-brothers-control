@@ -70,7 +70,7 @@ describe("birthday WhatsApp automation", () => {
     const msg = buildBirthdayMessage("João Silva", "Faith Brothers BJJ");
     expect(msg).toContain("Parabéns, João!");
     expect(msg).toContain("Faith Brothers BJJ");
-    expect(msg).toContain("Oss!");
+    expect(msg).toContain("Osss!");
   });
 
   it("queues birthday for active student once and skips duplicate year", async () => {

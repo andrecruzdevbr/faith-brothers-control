@@ -35,15 +35,14 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "contract_id obrigatório" }), { status: 400, headers });
     }
 
-    // Never send real WhatsApp from this notify path unless explicitly requested AND env allows.
-    // Default: queue only (pending) for go-live safety.
-    const sendImmediately = body.send_immediately === true;
+    // Payment confirmation WA must deliver; queue cron is not reliable in Actions.
+    const sendImmediately = body.send_immediately !== false;
 
     const supabase = createServiceClient();
     const { data: contract, error: contractError } = await supabase
       .from("student_contracts")
       .select(
-        "id, academy_id, student_id, family_group_id, starts_on, ends_on, payment_status, contract_status, plans(name)",
+        "id, academy_id, student_id, family_group_id, starts_on, ends_on, weekly_frequency, payment_status, contract_status, plans(name, plan_kind, training_days_per_week)",
       )
       .eq("id", contractId)
       .maybeSingle();
@@ -68,9 +67,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    const planName = Array.isArray(contract.plans)
-      ? contract.plans[0]?.name
-      : (contract.plans as { name?: string } | null)?.name;
+    const plan = Array.isArray(contract.plans) ? contract.plans[0] : contract.plans;
+    const planName = plan?.name ?? null;
+    const planKind = (plan?.plan_kind ?? "").toLowerCase();
+    const planKindLabel =
+      planKind === "mensal" || planKind === "trimestral" || planKind === "semestral" || planKind === "anual"
+        ? planKind.charAt(0).toUpperCase() + planKind.slice(1)
+        : null;
+    const trainingDays = Number(plan?.training_days_per_week ?? contract.weekly_frequency ?? 0) || null;
 
     const recipients: Array<{ studentId: string; fullName: string; whatsapp: string }> = [];
 
@@ -136,18 +140,23 @@ Deno.serve(async (req) => {
         body: buildContractApprovedMessage({
           fullName: recipient.fullName,
           planName,
+          planKindLabel,
+          trainingDays,
           startsOn: contract.starts_on,
           endsOn: contract.ends_on,
           isFamily: Boolean(contract.family_group_id),
         }),
-        messageType: "contract_approved",
+        messageType: "payment_confirmation",
         idempotencyKey,
         sendImmediately,
       });
       results.push(queueResult);
     }
 
-    return new Response(JSON.stringify({ ok: true, results }), { headers });
+    return new Response(
+      JSON.stringify({ ok: true, event: "payment_confirmed", results }),
+      { headers },
+    );
   } catch (error) {
     logSafeError("notify-contract-approved failed", {}, error);
     return new Response(JSON.stringify({ error: sanitizeLogError(error) }), {

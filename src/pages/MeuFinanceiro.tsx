@@ -16,11 +16,11 @@ import { StudentPlanEditor } from "@/components/StudentPlanEditor";
 import { StudentContractOverview } from "@/components/StudentContractOverview";
 import { useMyBillings } from "@/hooks/useQueries";
 import { formatCurrency, formatDateBR } from "@/lib/api";
-import { BILLING_STATUS_LABELS } from "@/lib/constants";
 import {
   formatPendingPlanChangeLabel,
   formatPlanCurrentLabel,
 } from "@/lib/plans";
+import { friendlyBillingStatusLabel } from "@/lib/student-plan-situation";
 import { supabase } from "@/integrations/supabase/client";
 import type { Enums } from "@/integrations/supabase/types";
 
@@ -39,7 +39,7 @@ const statusConfig = {
   em_dia: { label: "Em Dia", icon: CheckCircle, class: "text-success bg-success/10 border-success/30", desc: "Sua situação financeira está em dia." },
   atrasado: { label: "Atrasado", icon: AlertCircle, class: "text-destructive bg-destructive/10 border-destructive/30", desc: "Você possui cobrança(s) vencida(s). Regularize para continuar treinando." },
   proximo: { label: "Vence Breve", icon: Clock, class: "text-warning bg-warning/10 border-warning/30", desc: "Sua próxima cobrança vence em breve." },
-  pendente: { label: "Pendente", icon: Clock, class: "text-warning bg-warning/10 border-warning/30", desc: "Aguardando pagamento da cobrança atual." },
+  pendente: { label: "Aguardando pagamento", icon: Clock, class: "text-warning bg-warning/10 border-warning/30", desc: "Aguardando pagamento da cobrança atual." },
   sem_cobranca: { label: "Sem Cobrança", icon: DollarSign, class: "text-muted-foreground bg-secondary border-border", desc: "Nenhuma cobrança registrada ainda." },
 };
 
@@ -230,7 +230,7 @@ const MeuFinanceiro = () => {
                 <div>
                   <p className="text-sm font-medium text-foreground">{formatCurrency(Number(b.amount))}</p>
                   <p className="text-xs text-muted-foreground">
-                    Vence {formatDateBR(b.due_date)} • {BILLING_STATUS_LABELS[b.status] ?? b.status}
+                    Vence {formatDateBR(b.due_date)} • {friendlyBillingStatusLabel(b.status)}
                   </p>
                 </div>
                 {b.boleto_url ? (
@@ -316,7 +316,7 @@ const MeuFinanceiro = () => {
                     <td className="px-4 py-3 text-sm text-muted-foreground hidden sm:table-cell">{formatDateBR(b.due_date)}</td>
                     <td className="px-4 py-3">
                       <span className={`text-xs font-medium px-2 py-1 rounded-full ${billingStatusClass[b.status] ?? "text-muted-foreground bg-secondary"}`}>
-                        {BILLING_STATUS_LABELS[b.status] ?? b.status}
+                        {friendlyBillingStatusLabel(b.status)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-muted-foreground hidden md:table-cell">

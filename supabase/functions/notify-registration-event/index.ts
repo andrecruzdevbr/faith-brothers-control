@@ -4,8 +4,6 @@ import { queueWhatsApp } from "../_shared/whatsapp.ts";
 import {
   buildRegistrationApprovedIdempotencyKey,
   buildRegistrationApprovedMessage,
-  buildVeteranPeriodRequestIdempotencyKey,
-  buildVeteranPeriodRequestMessage,
   resolveRegistrationApprovedVariant,
 } from "../_shared/whatsapp-messages.ts";
 import { logSafeError, sanitizeLogError } from "../_shared/sanitize-log.ts";
@@ -34,7 +32,9 @@ Deno.serve(async (req) => {
 
     const body = (await req.json()) as Body;
     const studentId = String(body.student_id ?? "").trim();
-    const event = body.event === "veteran_period_request" ? "veteran_period_request" : "approved";
+    // veteran_period_request is treated as the same cadastral approval message (one WA).
+    const event = "approved";
+    void body.event;
     if (!studentId) {
       return new Response(JSON.stringify({ error: "student_id obrigatório" }), { status: 400, headers });
     }
@@ -64,20 +64,21 @@ Deno.serve(async (req) => {
       });
     }
 
-    const sendImmediately = body.send_immediately === true;
-    const isVeteranPeriod = event === "veteran_period_request";
+    // Approval must send now: there is no reliable queue cron in Actions.
+    // Explicit false remains available for tests/smoke that only want enqueue.
+    const sendImmediately = body.send_immediately !== false;
     const variant = resolveRegistrationApprovedVariant({
       registrationAudience: student.registration_audience,
       paymentReviewStatus: student.payment_review_status,
       pendingFamilyGroupId: student.pending_family_group_id,
       requestedPaymentMethod: student.requested_payment_method,
     });
-    const messageBody = isVeteranPeriod
-      ? buildVeteranPeriodRequestMessage(student.full_name, student.requested_training_days)
-      : buildRegistrationApprovedMessage(student.full_name, variant);
-    const idempotencyKey = isVeteranPeriod
-      ? buildVeteranPeriodRequestIdempotencyKey(student.id)
-      : buildRegistrationApprovedIdempotencyKey(student.id);
+    const messageBody = buildRegistrationApprovedMessage(
+      student.full_name,
+      variant,
+      student.requested_training_days,
+    );
+    const idempotencyKey = buildRegistrationApprovedIdempotencyKey(student.id);
 
     const result = await queueWhatsApp({
       supabase,
@@ -85,7 +86,7 @@ Deno.serve(async (req) => {
       studentId: student.id,
       recipient: student.whatsapp,
       body: messageBody,
-      messageType: isVeteranPeriod ? "registration" : "registration_approved",
+      messageType: "registration_approved",
       idempotencyKey,
       sendImmediately,
     });
@@ -94,9 +95,11 @@ Deno.serve(async (req) => {
       JSON.stringify({
         success: true,
         queued: true,
+        sent: result.sent === true,
         skipped: result.skipped ?? false,
         reason: result.reason,
         message_id: result.messageId,
+        event,
       }),
       { headers },
     );

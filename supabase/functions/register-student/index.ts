@@ -1,9 +1,12 @@
 import { corsHeaders, handleOptions } from "../_shared/cors.ts";
-import { createServiceClient } from "../_shared/supabase.ts";
+import { createServiceClient, requireAdmin } from "../_shared/supabase.ts";
 import { normalizeWhatsapp, toSyntheticEmail } from "../_shared/phone.ts";
 import { isValidTaxId, normalizeTaxId } from "../_shared/tax-id.ts";
 import { mapRegisterStudentRpcError } from "../_shared/register-errors.ts";
-import { dispatchRegistrationWhatsApp } from "../_shared/registration-whatsapp.ts";
+import {
+  dispatchAdminCreatedRegistrationWhatsApp,
+  dispatchRegistrationWhatsApp,
+} from "../_shared/registration-whatsapp.ts";
 import { logSafeError, sanitizeLogError } from "../_shared/sanitize-log.ts";
 import { validateStudentBirthFields } from "../_shared/student-age.ts";
 
@@ -48,7 +51,106 @@ type RegisterBody = {
   responsible_weekly_frequency?: number | null;
   responsible_trains?: boolean | null;
   members?: FamilyWizardMember[] | null;
+  /** When true, caller must be academy admin; cadastral approve + single approval WA. */
+  admin_created?: boolean;
 };
+
+function generateSecurePassword(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function applyAdminCadastralApproval(
+  supabase: ReturnType<typeof createServiceClient>,
+  studentId: string,
+  adminUserId: string,
+): Promise<{
+  payment_review_status: string | null;
+  registration_audience: string | null;
+  pending_family_group_id: string | null;
+  requested_payment_method: string | null;
+  requested_training_days: number | null;
+}> {
+  const { data: student, error } = await supabase
+    .from("students")
+    .select(
+      "id, status, payment_review_status, registration_audience, pending_family_group_id, requested_payment_method, requested_training_days, approved_at",
+    )
+    .eq("id", studentId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!student) throw new Error("Aluno não encontrado após cadastro");
+
+  if (student.approved_at) {
+    return {
+      payment_review_status: student.payment_review_status,
+      registration_audience: student.registration_audience,
+      pending_family_group_id: student.pending_family_group_id,
+      requested_payment_method: student.requested_payment_method,
+      requested_training_days: student.requested_training_days,
+    };
+  }
+
+  const audience = student.registration_audience ?? "";
+  const review = student.payment_review_status ?? "nao_aplicavel";
+  const now = new Date().toISOString();
+
+  if (audience === "veterano") {
+    await supabase
+      .from("students")
+      .update({
+        billing_period_status: "aguardando_escolha",
+        approved_at: now,
+        approved_by: adminUserId,
+        updated_at: now,
+      })
+      .eq("id", studentId)
+      .eq("status", "pendente_aprovacao");
+  } else if (review === "aguardando_conferencia") {
+    await supabase
+      .from("students")
+      .update({
+        approved_at: now,
+        approved_by: adminUserId,
+        updated_at: now,
+      })
+      .eq("id", studentId)
+      .eq("status", "pendente_aprovacao");
+
+    if (student.pending_family_group_id) {
+      await supabase
+        .from("students")
+        .update({
+          approved_at: now,
+          approved_by: adminUserId,
+          updated_at: now,
+        })
+        .eq("pending_family_group_id", student.pending_family_group_id)
+        .eq("status", "pendente_aprovacao")
+        .is("approved_at", null);
+    }
+  } else {
+    await supabase
+      .from("students")
+      .update({
+        status: "ativo",
+        approved_at: now,
+        approved_by: adminUserId,
+        updated_at: now,
+      })
+      .eq("id", studentId)
+      .eq("status", "pendente_aprovacao");
+  }
+
+  return {
+    payment_review_status: student.payment_review_status,
+    registration_audience: student.registration_audience,
+    pending_family_group_id: student.pending_family_group_id,
+    requested_payment_method: student.requested_payment_method,
+    requested_training_days: student.requested_training_days,
+  };
+}
 
 type RegistrationState = "available" | "complete" | "partial";
 
@@ -164,7 +266,38 @@ Deno.serve(async (req) => {
 
     const fullName = String(body.full_name ?? "").trim();
     const whatsapp = normalizeWhatsapp(String(body.whatsapp ?? ""));
-    const password = String(body.password ?? "");
+    const adminCreated = body.admin_created === true;
+    let adminUserId: string | null = null;
+    if (adminCreated) {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      try {
+        const admin = await requireAdmin(authHeader);
+        adminUserId = admin.userId;
+        const { data: profile } = await admin.supabase
+          .from("profiles")
+          .select("academy_id")
+          .eq("user_id", admin.userId)
+          .maybeSingle();
+        if (!profile?.academy_id || profile.academy_id !== academyIdEarly) {
+          return new Response(JSON.stringify({ error: "Academia não autorizada para este administrador." }), {
+            status: 403,
+            headers,
+          });
+        }
+      } catch (authErr) {
+        const msg = authErr instanceof Error ? authErr.message : "Unauthorized";
+        const status = msg === "Forbidden" ? 403 : 401;
+        return new Response(JSON.stringify({ error: "Somente administrador pode cadastrar aluno pelo painel." }), {
+          status,
+          headers,
+        });
+      }
+    }
+    const password = adminCreated
+      ? (String(body.password ?? "").trim().length >= 8
+          ? String(body.password).trim()
+          : generateSecurePassword())
+      : String(body.password ?? "");
     const academyId = academyIdEarly;
     const belt = String(body.belt ?? "Branca").trim() || "Branca";
     // Public registration collects belt only; degrees stay 0 until ADM updates.
@@ -493,23 +626,46 @@ Deno.serve(async (req) => {
           (Array.isArray(result.member_student_ids) ? result.member_student_ids[0] : null) ||
           null;
 
-        const whatsappInfo = await dispatchRegistrationWhatsApp({
-          supabase,
-          academyId,
-          studentId: notifyStudentId,
-          fullName,
-          whatsapp,
-        });
+        let whatsappInfo;
+        if (adminCreated && adminUserId && notifyStudentId) {
+          const approvalMeta = await applyAdminCadastralApproval(
+            supabase,
+            String(notifyStudentId),
+            adminUserId,
+          );
+          whatsappInfo = await dispatchAdminCreatedRegistrationWhatsApp({
+            supabase,
+            academyId,
+            studentId: String(notifyStudentId),
+            fullName,
+            whatsapp,
+            registrationAudience: approvalMeta.registration_audience,
+            paymentReviewStatus: approvalMeta.payment_review_status,
+            pendingFamilyGroupId: approvalMeta.pending_family_group_id,
+            requestedPaymentMethod: approvalMeta.requested_payment_method,
+            requestedTrainingDays: approvalMeta.requested_training_days,
+          });
+        } else {
+          whatsappInfo = await dispatchRegistrationWhatsApp({
+            supabase,
+            academyId,
+            studentId: notifyStudentId,
+            fullName,
+            whatsapp,
+          });
+        }
 
         return new Response(
           JSON.stringify({
             success: true,
-            message:
-              "Cadastro familiar enviado. Aguarde a academia confirmar o pagamento. Nenhum boleto é gerado no cadastro.",
+            message: adminCreated
+              ? "Família cadastrada e aprovada cadastralmente. Pagamento (se houver) continua em etapa separada. O aluno acessa com “Esqueci minha senha”."
+              : "Cadastro familiar enviado. Aguarde a academia confirmar o pagamento. Nenhum boleto é gerado no cadastro.",
             email,
             student_id: result.responsible_student_id ?? null,
             family_group_id: result.family_group_id,
             member_count: result.member_count,
+            admin_created: adminCreated,
             whatsapp: whatsappInfo,
           }),
           { headers },
@@ -564,20 +720,45 @@ Deno.serve(async (req) => {
         throw new Error("Não foi possível criar o registro do aluno");
       }
 
-      const whatsappInfo = await dispatchRegistrationWhatsApp({
-        supabase,
-        academyId,
-        studentId: String(studentId),
-        fullName,
-        whatsapp,
-      });
+      let whatsappInfo;
+      if (adminCreated && adminUserId) {
+        const approvalMeta = await applyAdminCadastralApproval(
+          supabase,
+          String(studentId),
+          adminUserId,
+        );
+        whatsappInfo = await dispatchAdminCreatedRegistrationWhatsApp({
+          supabase,
+          academyId,
+          studentId: String(studentId),
+          fullName,
+          whatsapp,
+          registrationAudience: approvalMeta.registration_audience ?? registrationAudience,
+          paymentReviewStatus: approvalMeta.payment_review_status,
+          pendingFamilyGroupId: approvalMeta.pending_family_group_id,
+          requestedPaymentMethod: approvalMeta.requested_payment_method ?? paymentMethod,
+          requestedTrainingDays:
+            approvalMeta.requested_training_days ?? requestedTrainingDays,
+        });
+      } else {
+        whatsappInfo = await dispatchRegistrationWhatsApp({
+          supabase,
+          academyId,
+          studentId: String(studentId),
+          fullName,
+          whatsapp,
+        });
+      }
 
       return new Response(
         JSON.stringify({
           success: true,
-          message: "Cadastro realizado. Aguarde a aprovação da academia.",
+          message: adminCreated
+            ? "Aluno cadastrado e aprovado cadastralmente. Pagamento (se houver) continua em etapa separada. Acesso: “Esqueci minha senha”."
+            : "Cadastro realizado. Aguarde a aprovação da academia.",
           email,
           student_id: studentId,
+          admin_created: adminCreated,
           whatsapp: whatsappInfo,
         }),
         { headers },

@@ -40,7 +40,7 @@ describe("register-student WhatsApp confirmation", () => {
   it("builds the expected confirmation message", () => {
     const message = buildRegistrationReceivedMessage("João Silva");
     expect(message).toContain("Olá, João Silva!");
-    expect(message).toContain("Faith Brothers Control");
+    expect(message).toContain("Faith Brothers, TMJ!");
     expect(message).toContain("aguardar a revisão da academia");
     expect(message).toContain("Nenhum pagamento é considerado aprovado");
   });

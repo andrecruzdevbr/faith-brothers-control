@@ -1,13 +1,25 @@
+/** Shared WhatsApp copy for academy-facing student messages (testable, no I/O). */
+
+export const FAITH_BROTHERS_WHATSAPP_SIGNATURE = [
+  "Faith Brothers, TMJ! 👊",
+  "Osss! 🥋🤼",
+].join("\n");
+
+export function withFaithBrothersSignature(bodyLines: string[]): string {
+  const trimmed = bodyLines.join("\n").replace(/\s+$/g, "");
+  return `${trimmed}\n\n${FAITH_BROTHERS_WHATSAPP_SIGNATURE}`;
+}
+
 export function buildRegistrationReceivedMessage(fullName: string): string {
   const name = fullName.trim() || "aluno";
-  return [
-    `Olá, ${name}! Seu cadastro na Faith Brothers Control foi recebido com sucesso.`,
+  return withFaithBrothersSignature([
+    `Olá, ${name}! 🥋`,
+    "",
+    "Seu cadastro na Faith Brothers foi recebido com sucesso.",
     "",
     "Agora é só aguardar a revisão da academia.",
-    "",
     "Nenhum pagamento é considerado aprovado neste momento.",
-    "Assim que houver novidades, avisaremos por aqui.",
-  ].join("\n");
+  ]);
 }
 
 export type RegistrationApprovedVariant =
@@ -31,49 +43,104 @@ export function resolveRegistrationApprovedVariant(input: {
   return "generic";
 }
 
+/** Cadastro feito pelo ADM (já aprovado cadastralmente). Sem afirmar pagamento. */
+export function buildAdminCreatedRegistrationApprovedMessage(
+  fullName: string,
+  variant: RegistrationApprovedVariant = "generic",
+  trainingDays?: number | null,
+): string {
+  const name = fullName.trim() || "aluno";
+  if (variant === "veteran") {
+    return buildVeteranRegistrationApprovedMessage(fullName, trainingDays);
+  }
+  if (variant === "card") {
+    return buildNewStudentCardRegistrationApprovedMessage(fullName);
+  }
+  return withFaithBrothersSignature([
+    `Olá, ${name}! 🥋`,
+    "",
+    "Seu cadastro na Faith Brothers foi realizado e aprovado!",
+    "",
+    "Agora você já pode acompanhar pelo aplicativo as informações do seu plano",
+    "e sua situação financeira.",
+  ]);
+}
+
+/** NEW_STUDENT + cartão/maquininha: aprovação cadastral; pagamento ainda pendente. */
+export function buildNewStudentCardRegistrationApprovedMessage(fullName: string): string {
+  const name = fullName.trim() || "aluno";
+  return withFaithBrothersSignature([
+    `Olá, ${name}! 🥋`,
+    "",
+    "Seu cadastro na Faith Brothers foi aprovado!",
+    "",
+    "Seu plano foi registrado e agora estamos aguardando a confirmação do pagamento pela academia.",
+    "",
+    "Você pode acompanhar sua situação pelo aplicativo.",
+  ]);
+}
+
+/** Novo aluno (boleto/genérico) — sem afirmar pagamento confirmado. */
+export function buildNewStudentRegistrationApprovedMessage(fullName: string): string {
+  const name = fullName.trim() || "aluno";
+  return withFaithBrothersSignature([
+    `Olá, ${name}! 🥋`,
+    "",
+    "Seu cadastro na Faith Brothers foi aprovado!",
+    "",
+    "Agora você já pode acompanhar pelo aplicativo as informações do seu plano",
+    "e sua situação financeira.",
+  ]);
+}
+
+/** Veterano — aprovação cadastral; plano/pagamento a definir. Sem preço. */
+export function buildVeteranRegistrationApprovedMessage(
+  fullName: string,
+  _trainingDays?: number | null,
+): string {
+  const name = fullName.trim() || "aluno";
+  void _trainingDays;
+  return withFaithBrothersSignature([
+    `Olá, ${name}! 🥋`,
+    "",
+    "Seu cadastro na Faith Brothers foi aprovado!",
+    "",
+    "Sua frequência de treino foi registrada.",
+    "",
+    "Agora nossa equipe irá definir com você o plano e a forma de pagamento.",
+    "",
+    "Você pode acompanhar sua situação pelo aplicativo.",
+  ]);
+}
+
 export function buildRegistrationApprovedMessage(
   fullName: string,
   variant: RegistrationApprovedVariant = "generic",
+  trainingDays?: number | null,
 ): string {
-  const name = fullName.trim() || "aluno";
-  const closing =
-    variant === "card"
-      ? "Agora só falta concluirmos a etapa financeira do seu plano — aguardando confirmação do pagamento."
-      : variant === "boleto"
-        ? "Agora só falta concluirmos a etapa financeira do seu plano — o fluxo de cobrança seguirá em breve."
-        : variant === "veteran"
-          ? "Agora falta apenas definirmos seu plano e a forma de pagamento."
-          : variant === "family"
-            ? "Agora só falta concluirmos a etapa financeira da família."
-            : "Agora só falta concluirmos a etapa financeira do seu plano.";
-
-  return [
-    `Olá, ${name}! Seu cadastro na Faith Brothers foi aprovado. 🥋`,
-    "",
-    "Seja bem-vindo!",
-    "",
-    closing,
-  ].join("\n");
+  if (variant === "veteran") {
+    return buildVeteranRegistrationApprovedMessage(fullName, trainingDays);
+  }
+  if (variant === "card") {
+    return buildNewStudentCardRegistrationApprovedMessage(fullName);
+  }
+  if (variant === "family") {
+    const name = fullName.trim() || "aluno";
+    return withFaithBrothersSignature([
+      `Olá, ${name}! 🥋`,
+      "",
+      "O cadastro familiar na Faith Brothers foi aprovado!",
+      "",
+      "Agora você já pode acompanhar pelo aplicativo as informações do plano",
+      "e a situação financeira da família.",
+    ]);
+  }
+  return buildNewStudentRegistrationApprovedMessage(fullName);
 }
 
+/** @deprecated Prefer buildVeteranRegistrationApprovedMessage via registration_approved. */
 export function buildVeteranPeriodRequestMessage(fullName: string, trainingDays?: number | null): string {
-  const name = fullName.trim() || "aluno";
-  const daysLabel =
-    trainingDays === 1
-      ? "1 dia"
-      : trainingDays === 2 || trainingDays === 3 || trainingDays === 5
-        ? `${trainingDays} dias`
-        : null;
-  return [
-    `Olá, ${name}! Seu cadastro na Faith Brothers foi aprovado. 🥋`,
-    "",
-    daysLabel
-      ? `Você informou que pretende treinar ${daysLabel} por semana.`
-      : "Você informou a frequência desejada de treino.",
-    "",
-    "Agora falta apenas definirmos seu plano e a forma de pagamento.",
-    "Nossa equipe dará continuidade a essa etapa.",
-  ].join("\n");
+  return buildVeteranRegistrationApprovedMessage(fullName, trainingDays);
 }
 
 export function buildRegistrationReceivedIdempotencyKey(studentId: string): string {
@@ -92,50 +159,69 @@ export function buildPaymentConfirmationIdempotencyKey(scope: string, entityId: 
   return `payment_confirmation:${scope}:${entityId}`;
 }
 
+/** Evento financeiro distinto de registration_approved. */
 export function buildContractApprovedMessage(params: {
   fullName: string;
   planName?: string | null;
+  planKindLabel?: string | null;
+  trainingDays?: number | null;
   startsOn?: string | null;
   endsOn?: string | null;
   isFamily?: boolean;
 }): string {
   const name = params.fullName.trim() || "aluno";
-  const plan = (params.planName ?? "").trim() || "seu pacote";
+  const kind = (params.planKindLabel ?? "").trim();
+  const days = params.trainingDays;
+  const daysLabel =
+    days === 1 ? "1 dia por semana" : days && days > 0 ? `${days} dias por semana` : null;
+  const planLine =
+    kind && daysLabel
+      ? `Seu plano ${kind} de ${daysLabel} está ativo.`
+      : `Seu plano ${(params.planName ?? "").trim() || "contratado"} está ativo.`;
+
   const lines = [
-    `Olá, ${name}! Seu pagamento do ${plan} foi confirmado pela academia.`,
+    `Olá, ${name}! 🥋`,
     "",
+    "Pagamento confirmado!",
+    "",
+    planLine,
   ];
   if (params.isFamily) {
-    lines.push("A cobertura está vinculada ao contrato familiar.");
+    lines.push("", "A cobertura está vinculada ao contrato familiar.");
   }
   if (params.startsOn && params.endsOn) {
-    lines.push(`Período liberado: ${params.startsOn} até ${params.endsOn}.`);
+    lines.push("", "Período liberado:", `${params.startsOn} até ${params.endsOn}`);
   }
-  lines.push("", "Faith Brothers Control 🥋");
-  return lines.join("\n");
+  lines.push("", "Você já pode acompanhar os meses liberados pelo aplicativo.");
+  return withFaithBrothersSignature(lines);
 }
 
+/** Idempotency for payment confirmation (never reuse registration_approved key). */
 export function buildContractApprovedIdempotencyKey(contractId: string, event = "payment_confirmed"): string {
   return `contract_approved:${contractId}:${event}`;
 }
 
+export function buildPaymentConfirmedIdempotencyKey(contractId: string): string {
+  return buildContractApprovedIdempotencyKey(contractId, "payment_confirmed");
+}
 
 export function buildBirthdayMessage(fullName: string, academyName?: string | null): string {
   const name = (fullName.trim().split(/\s+/)[0] || "aluno").trim();
   const academy = (academyName ?? "").trim() || "Faith Brothers BJJ";
-  return `🎉 Parabéns, ${name}! A equipe ${academy} deseja um feliz aniversário, muita saúde, evolução e muitas conquistas dentro e fora dos tatames. Oss! 🥋`;
+  return withFaithBrothersSignature([
+    `🎉 Parabéns, ${name}!`,
+    "",
+    `A equipe ${academy} deseja um feliz aniversário, muita saúde, evolução e muitas conquistas dentro e fora dos tatames.`,
+  ]);
 }
 
 export function buildPasswordResetOtpMessage(code: string, expiryMinutes: number): string {
-  return [
+  return withFaithBrothersSignature([
     `Fala, irmão! Seu código de recuperação é: *${code}*`,
     "",
     `Ele é válido por ${expiryMinutes} minutos.`,
-    "",
-    "Faith Brothers Control 🥋",
-  ].join("\n");
+  ]);
 }
-
 
 export type WhatsAppDispatchInfo = {
   queued: boolean;

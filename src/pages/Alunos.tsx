@@ -16,6 +16,8 @@ import { StudentPlanEditor } from "@/components/StudentPlanEditor";
 import { StudentBirthEditor } from "@/components/StudentBirthEditor";
 import { PrepaidApprovalDialog } from "@/components/PrepaidApprovalDialog";
 import { VeteranPeriodDialog } from "@/components/VeteranPeriodDialog";
+import { AdminNewStudentDialog } from "@/components/AdminNewStudentDialog";
+import { canCreateStudentViaAdmin } from "@/lib/admin-new-student";
 import {
   getAdminStudentStatusLabel,
   shouldShowApproveRegistrationButton,
@@ -121,7 +123,9 @@ async function fetchMaskedTaxIdMap(
 }
 
 const Alunos = () => {
-  const { isAdmin, isStaff } = useAuth();
+  const { isAdmin, isStaff, roles } = useAuth();
+  const canCreateStudent = canCreateStudentViaAdmin(roles);
+  const [newStudentOpen, setNewStudentOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: academyId } = useAcademyId();
@@ -267,47 +271,48 @@ const Alunos = () => {
       if (error) throw error;
 
       if (approve) {
+        let waOk = false;
+        let waSkipped = false;
         try {
-          await callEdgeFunction(
+          const wa = await callEdgeFunction<{
+            sent?: boolean;
+            skipped?: boolean;
+            reason?: string;
+          }>(
             "notify-registration-event",
             {
               student_id: studentId,
               event: "approved",
+              send_immediately: true,
             },
             { requireAuth: true },
           );
+          waOk = wa?.sent === true || wa?.skipped === true;
+          waSkipped = wa?.skipped === true;
         } catch {
-          /* WhatsApp queue is best-effort */
+          waOk = false;
         }
-        if (opts?.isVeteran) {
-          try {
-            await callEdgeFunction(
-              "notify-registration-event",
-              {
-                student_id: studentId,
-                event: "veteran_period_request",
-              },
-              { requireAuth: true },
-            );
-          } catch {
-            /* commercial follow-up WA is best-effort */
-          }
-        }
-      }
 
-      toast({
-        title: approve
-          ? opts?.isVeteran
-            ? "Cadastro veterano aprovado"
-            : "Cadastro aprovado"
-          : "Aluno rejeitado",
-        description: approve
-          ? opts?.isVeteran
-            ? "WhatsApp de aprovação enviado. Defina plano e pagamento quando os valores estiverem cadastrados."
-            : "WhatsApp de aprovação enviado. O pagamento (se houver) continua em etapa separada."
-          : "O cadastro foi rejeitado.",
-      });
+        toast({
+          title: opts?.isVeteran ? "Cadastro veterano aprovado" : "Cadastro aprovado",
+          description: waOk
+            ? waSkipped
+              ? "Cadastro aprovado. WhatsApp de aprovação já havia sido registrado (idempotente)."
+              : opts?.isVeteran
+                ? "WhatsApp de aprovação enviado. Defina plano e pagamento quando os valores estiverem cadastrados."
+                : "WhatsApp de aprovação enviado. O pagamento (se houver) continua em etapa separada."
+            : "Cadastro aprovado, mas o WhatsApp de aprovação não pôde ser confirmado. Verifique a fila depois.",
+          variant: waOk ? "default" : "destructive",
+        });
+      } else {
+        toast({
+          title: "Aluno rejeitado",
+          description: "O cadastro foi rejeitado.",
+        });
+      }
       await queryClient.invalidateQueries({ queryKey: ["students"] });
+      await queryClient.invalidateQueries({ queryKey: ["student-plan-situation"] });
+      await queryClient.invalidateQueries({ queryKey: ["student-financial-map"] });
     } catch (e) {
       const description =
         e && typeof e === "object" && "message" in e && typeof (e as { message: unknown }).message === "string"
@@ -336,9 +341,15 @@ const Alunos = () => {
             <p className="text-sm text-muted-foreground mt-1">{total} alunos cadastrados</p>
           )}
         </div>
-        <Button className="gradient-primary text-primary-foreground font-medium gap-2" disabled>
-          <Plus className="h-4 w-4" /> Novo Aluno
-        </Button>
+        {canCreateStudent ? (
+          <Button
+            className="gradient-primary text-primary-foreground font-medium gap-2"
+            onClick={() => setNewStudentOpen(true)}
+            disabled={!academyId}
+          >
+            <Plus className="h-4 w-4" /> Novo Aluno
+          </Button>
+        ) : null}
       </div>
 
       <div className="relative flex-1">
@@ -775,6 +786,7 @@ const Alunos = () => {
               student={prepaidStudent}
               onDone={() => {
                 void queryClient.invalidateQueries({ queryKey: ["students"] });
+                void queryClient.invalidateQueries({ queryKey: ["student-plan-situation"] });
                 void queryClient.invalidateQueries({ queryKey: ["student-financial-map"] });
                 setPrepaidStudent(null);
               }}
@@ -796,12 +808,25 @@ const Alunos = () => {
               student={veteranPeriodStudent}
               onDone={() => {
                 void queryClient.invalidateQueries({ queryKey: ["students"] });
+                void queryClient.invalidateQueries({ queryKey: ["student-plan-situation"] });
                 setVeteranPeriodStudent(null);
               }}
             />
           )}
         </DialogContent>
       </Dialog>
+
+      {academyId ? (
+        <AdminNewStudentDialog
+          open={newStudentOpen}
+          onOpenChange={setNewStudentOpen}
+          academyId={academyId}
+          onCreated={() => {
+            void queryClient.invalidateQueries({ queryKey: ["students"] });
+            void queryClient.invalidateQueries({ queryKey: ["student-financial-map"] });
+          }}
+        />
+      ) : null}
     </div>
   );
 };

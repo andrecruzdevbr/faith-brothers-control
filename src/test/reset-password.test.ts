@@ -63,7 +63,7 @@ describe("password reset OTP WhatsApp", () => {
     const message = buildPasswordResetOtpMessage(OTP_CODE, OTP_EXPIRY_MINUTES);
     expect(message).toContain(`*${OTP_CODE}*`);
     expect(message).toContain(`${OTP_EXPIRY_MINUTES} minutos`);
-    expect(message).toContain("Faith Brothers Control");
+    expect(message).toContain("Faith Brothers, TMJ!");
   });
 
   it("requests code and queues WhatsApp with OTP body", async () => {

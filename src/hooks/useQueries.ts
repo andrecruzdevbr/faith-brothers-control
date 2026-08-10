@@ -79,7 +79,13 @@ export function useMyBillings() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return [];
 
-      const { data: student } = await supabase.from("students").select("id, plan_id, plans(name, monthly_price)").eq("profile_user_id", user.id).maybeSingle();
+      const { data: student } = await supabase
+        .from("students")
+        .select(
+          "id, plan_id, status, approved_at, payment_review_status, registration_audience, requested_training_days, requested_payment_method, plans(id, name, monthly_price, package_total_amount, duration_months, billing_mode, plan_kind, training_days_per_week, audience)",
+        )
+        .eq("profile_user_id", user.id)
+        .maybeSingle();
       if (!student) return [];
 
       const { data, error } = await supabase

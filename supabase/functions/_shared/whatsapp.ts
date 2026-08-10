@@ -10,6 +10,7 @@ import { formatEvolutionApiError } from "./evolution-error.ts";
 export type WhatsAppMessageType =
   | "general"
   | "registration"
+  | "registration_approved"
   | "billing"
   | "billing_overdue"
   | "attendance"
