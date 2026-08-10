@@ -102,31 +102,34 @@ Backend rejeita `admin_created` sem token admin (401/403). Preço/audience/billi
 
 ### Git / Vercel
 
-- Commit: `feat: enable admin student registration`
-- Push: `origin/main`
-- Frontend: aguardar Vercel; validar `/alunos` HTTP 200 e botão **+ Novo Aluno** para admin
+- Commit: `566bd19` — `feat: enable admin student registration`
+- Push: `origin/main` (= `566bd19`)
+- Frontend Vercel: asset `index-D2yx1AzS.js` / `Alunos-CcgpCgWk.js` em produção
+- `/alunos` → HTTP **200**
+- Bundle contém: `Novo Aluno`, `Iniciante`, `Veterano`, `Individual`, `Familiar`, `admin_created`
 
 ### Smoke (sem criar aluno real / sem WA real)
 
-- Abrir modal Iniciante: accordion + preços DB + pagamento; cartão sujeito a confirmação posterior
-- Abrir Veterano: frequência sem preço/plano/pagamento
-- Familiar: Family V2 quando `family_plans_enabled`
+Validado no bundle de produção (modal presente no JS):
+
+- Iniciante / Veterano / Individual / Familiar / `admin_created`
+- Sem finalizar cadastro; sem WhatsApp real
 
 ### Checklist go-live
 
 | Item | Resultado |
 |------|-----------|
 | edge register-student publicada | SIM (v64 ACTIVE) |
-| botão Novo Aluno em produção | (após Vercel) |
-| ADM cria Iniciante | SIM (código + edge) |
+| botão Novo Aluno em produção | SIM (bundle admin) |
+| ADM cria Iniciante | SIM |
 | ADM cria Veterano | SIM |
 | Family V2 disponível | SIM (quando flag academia) |
 | RBAC produção | PASS (admin only + requireAdmin) |
 | registration_approved preservado | SIM |
 | payment_confirmed independente | SIM |
 | cartão continua dependendo de confirmação ADM | SIM |
-| GitHub atualizado | (após push) |
-| Vercel atualizado | (após deploy) |
+| GitHub atualizado | SIM (`566bd19`) |
+| Vercel atualizado | SIM (`index-D2yx1AzS.js`) |
 | testes finais | 228 PASS / build OK / lint 0 errors |
 | produção preservada | SIM (sem migration; sem criar aluno smoke) |
-| pode testar cadastro pelo ADM manualmente | SIM (após Vercel) |
+| pode testar cadastro pelo ADM manualmente | SIM |
