@@ -91,12 +91,39 @@ export function validatePractitionerSports(input: {
   return null;
 }
 
+/**
+ * Contagem oficial de praticantes cobertos pelo pacote familiar:
+ * (responsável se treina ? 1 : 0) + integrantes no wizard.
+ * Não inclui responsável que não treina.
+ */
+export function validateFamilyPractitionerCount(
+  responsibleTrains: boolean,
+  membersCount: number,
+  expectedCovered: number,
+): string | null {
+  if (![1, 2, 3].includes(expectedCovered)) {
+    return "Modelo familiar inválido.";
+  }
+  const actual = countFamilyPractitioners(responsibleTrains, membersCount);
+  if (actual !== expectedCovered) {
+    return `O Plano Familiar ${expectedCovered} cobre exatamente ${expectedCovered} praticante(s). Agora: ${actual}.`;
+  }
+  return null;
+}
+
 export function validateFamilyWizardMembers(
   members: FamilyWizardMemberDraft[],
-  options?: { responsibleTrains?: boolean | null; financialResponsibleName?: string | null },
+  options?: {
+    responsibleTrains?: boolean | null;
+    financialResponsibleName?: string | null;
+    expectedPractitionerCount?: number | null;
+  },
 ): { ok: true } | { ok: false; error: string } {
   const responsibleTrains = options?.responsibleTrains === true;
-  if (!members.length) {
+  const expected = options?.expectedPractitionerCount ?? null;
+  const allowsEmptyMembers = expected === 1 && responsibleTrains;
+
+  if (!members.length && !allowsEmptyMembers) {
     return {
       ok: false,
       error: responsibleTrains
@@ -159,6 +186,16 @@ export function validateFamilyWizardMembers(
     });
     if (sports) return { ok: false, error: sports };
   }
+
+  if (expected != null) {
+    const countError = validateFamilyPractitionerCount(
+      responsibleTrains,
+      members.length,
+      expected,
+    );
+    if (countError) return { ok: false, error: countError };
+  }
+
   return { ok: true };
 }
 

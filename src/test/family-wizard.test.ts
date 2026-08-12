@@ -11,8 +11,14 @@ import {
 } from "@/lib/family-wizard";
 
 describe("family registration v2", () => {
-  it("requires at least one member even when responsible trains", () => {
+  it("requires at least one member when responsible trains unless Family 1 covers only the holder", () => {
     expect(validateFamilyWizardMembers([], { responsibleTrains: true }).ok).toBe(false);
+    expect(
+      validateFamilyWizardMembers([], {
+        responsibleTrains: true,
+        expectedPractitionerCount: 1,
+      }).ok,
+    ).toBe(true);
   });
 
   it("requires a practitioner member when responsible does not train", () => {

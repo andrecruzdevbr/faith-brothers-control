@@ -407,16 +407,6 @@ Deno.serve(async (req) => {
     }
 
     if (isFamilyWizard) {
-      if (wizardMembers.length < 1) {
-        return new Response(
-          JSON.stringify({
-            error: responsibleTrains
-              ? "Inclua ao menos um integrante além do responsável."
-              : "Quando o responsável não treina, adicione ao menos um integrante.",
-          }),
-          { status: 400, headers },
-        );
-      }
       if (responsibleTrains && (degrees < 0 || degrees > 4 || !Number.isInteger(degrees))) {
         return new Response(
           JSON.stringify({ error: "Quantidade de graus do responsável inválida (0 a 4)." }),
@@ -446,6 +436,13 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (isFamilyWizard && !planId) {
+      return new Response(JSON.stringify({ error: "Selecione um plano familiar." }), {
+        status: 400,
+        headers,
+      });
+    }
+
     const supabase = createServiceClient();
 
     const { data: academy, error: academyError } = await supabase
@@ -463,7 +460,9 @@ Deno.serve(async (req) => {
     if (!isVeteran && planId) {
       const { data: plan, error: planError } = await supabase
         .from("plans")
-        .select("id, billing_mode, allows_installments, max_installments")
+        .select(
+          "id, name, audience, category, billing_mode, allows_installments, max_installments, training_days_per_week, package_total_amount, monthly_price, active",
+        )
         .eq("id", planId)
         .eq("academy_id", academyId)
         .eq("active", true)
@@ -480,6 +479,61 @@ Deno.serve(async (req) => {
       }
 
       billingMode = String((plan as { billing_mode?: string }).billing_mode ?? "asaas_monthly");
+      const planAudience = String((plan as { audience?: string | null }).audience ?? "normal");
+      const planCategory = String((plan as { category?: string | null }).category ?? "");
+      const planName = String((plan as { name?: string }).name ?? "");
+
+      if (isFamilyWizard) {
+        if (planAudience !== "familia") {
+          return new Response(
+            JSON.stringify({ error: "Selecione um plano do catálogo familiar oficial." }),
+            { status: 400, headers },
+          );
+        }
+        if (billingMode !== "machine_prepaid") {
+          return new Response(
+            JSON.stringify({ error: "Contrato familiar exige plano machine_prepaid." }),
+            { status: 400, headers },
+          );
+        }
+        const covered =
+          planCategory === "familia_1"
+            ? 1
+            : planCategory === "familia_2"
+              ? 2
+              : planCategory === "familia_3"
+                ? 3
+                : (() => {
+                    const m = planName.match(/Plano Familiar\s+([123])\b/i);
+                    return m ? Number(m[1]) : null;
+                  })();
+        if (covered == null || ![1, 2, 3].includes(covered)) {
+          return new Response(
+            JSON.stringify({ error: "Modelo familiar inválido (use Plano Familiar 1, 2 ou 3)." }),
+            { status: 400, headers },
+          );
+        }
+        const practitioners = (responsibleTrains ? 1 : 0) + wizardMembers.length;
+        if (practitioners !== covered) {
+          return new Response(
+            JSON.stringify({
+              error: `O Plano Familiar ${covered} cobre exatamente ${covered} praticante(s). Atual: ${practitioners}.`,
+            }),
+            { status: 400, headers },
+          );
+        }
+        if (wizardMembers.length < 1 && !(responsibleTrains && covered === 1)) {
+          return new Response(
+            JSON.stringify({
+              error: responsibleTrains
+                ? "Inclua ao menos um integrante além do responsável."
+                : "Quando o responsável não treina, adicione ao menos um integrante.",
+            }),
+            { status: 400, headers },
+          );
+        }
+      }
+
       const machinePlan = billingMode === "machine_prepaid" || billingMode === "machine_dropin";
       const newStudentCard =
         (registrationAudience === "new_student" || !registrationAudience) &&

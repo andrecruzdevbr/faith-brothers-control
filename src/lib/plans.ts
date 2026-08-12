@@ -4,6 +4,7 @@ export type PlanOption = {
   monthly_price: number;
   training_days_per_week?: number | null;
   audience?: string | null;
+  category?: string | null;
   plan_kind?: string | null;
   duration_months?: number | null;
   reference_monthly_price?: number | null;
@@ -144,4 +145,93 @@ export function matchesOfficialNewStudentEntry(
   if (Number(plan.duration_months ?? 1) !== expected.duration_months) return false;
   const amount = planCommercialAmount(plan);
   return Math.abs(amount - expected.amount) < 0.01;
+}
+
+/** Covered practitioners for commercial Family 1 / 2 / 3 packages. */
+export const FAMILY_MODEL_OPTIONS = [
+  { model: 1 as const, label: "Plano Familiar 1", subtitle: "1 familiar" },
+  { model: 2 as const, label: "Plano Familiar 2", subtitle: "2 familiares" },
+  { model: 3 as const, label: "Plano Familiar 3", subtitle: "3 familiares" },
+];
+
+export type FamilyPlanModel = (typeof FAMILY_MODEL_OPTIONS)[number]["model"];
+
+/**
+ * Official FAMILY commercial matrix (source of truth for tests; UI loads prices from DB).
+ * Amount is the package total — never multiply by practitioner count.
+ */
+export const OFFICIAL_FAMILY_CATALOG = [
+  { model: 1, training_days_per_week: 1, amount: 320 },
+  { model: 1, training_days_per_week: 2, amount: 380 },
+  { model: 1, training_days_per_week: 3, amount: 420 },
+  { model: 1, training_days_per_week: 5, amount: 450 },
+  { model: 2, training_days_per_week: 1, amount: 420 },
+  { model: 2, training_days_per_week: 2, amount: 510 },
+  { model: 2, training_days_per_week: 3, amount: 570 },
+  { model: 2, training_days_per_week: 5, amount: 630 },
+  { model: 3, training_days_per_week: 1, amount: 480 },
+  { model: 3, training_days_per_week: 2, amount: 600 },
+  { model: 3, training_days_per_week: 3, amount: 680 },
+  { model: 3, training_days_per_week: 5, amount: 760 },
+] as const;
+
+export function officialFamilyPlanName(model: number, days: number): string {
+  const dayLabel = days === 1 ? "1 dia por semana" : `${days} dias por semana`;
+  return `Plano Familiar ${model} — ${dayLabel}`;
+}
+
+export function officialFamilyCategory(model: number): string {
+  return `familia_${model}`;
+}
+
+/** Parse covered size from category (`familia_N`) or official name. */
+export function parseFamilyPlanModel(plan: {
+  name?: string | null;
+  category?: string | null;
+}): FamilyPlanModel | null {
+  const cat = String(plan.category ?? "").trim().toLowerCase();
+  const fromCat = cat.match(/^familia_([123])$/);
+  if (fromCat) return Number(fromCat[1]) as FamilyPlanModel;
+  const fromName = String(plan.name ?? "").match(/Plano Familiar\s+([123])\b/i);
+  if (fromName) return Number(fromName[1]) as FamilyPlanModel;
+  return null;
+}
+
+export function resolveOfficialFamilyPlan(
+  plans: PlanOption[],
+  model: number,
+  days: number,
+): PlanOption | null {
+  const expectedName = officialFamilyPlanName(model, days);
+  const byName = plans.find(
+    (p) =>
+      (p.audience ?? "").toLowerCase() === "familia" &&
+      p.name === expectedName &&
+      Number(p.training_days_per_week) === days,
+  );
+  if (byName) return byName;
+  return (
+    plans.find((p) => {
+      if ((p.audience ?? "").toLowerCase() !== "familia") return false;
+      if (Number(p.training_days_per_week) !== days) return false;
+      return parseFamilyPlanModel(p) === model;
+    }) ?? null
+  );
+}
+
+export function matchesOfficialFamilyEntry(
+  plan: PlanOption,
+  expected: (typeof OFFICIAL_FAMILY_CATALOG)[number],
+): boolean {
+  if ((plan.audience ?? "").toLowerCase() !== "familia") return false;
+  if (parseFamilyPlanModel(plan) !== expected.model) return false;
+  if (Number(plan.training_days_per_week) !== expected.training_days_per_week) return false;
+  const amount = planCommercialAmount(plan);
+  return Math.abs(amount - expected.amount) < 0.01;
+}
+
+/** Package price is fixed — never × practitioners. */
+export function familyPackageRevenue(planAmount: number, _practitionerCount: number): number {
+  void _practitionerCount;
+  return Number(planAmount);
 }

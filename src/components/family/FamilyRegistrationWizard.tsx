@@ -12,7 +12,15 @@ import { callEdgeFunction, formatCurrency } from "@/lib/api";
 import { BELTS } from "@/lib/constants";
 import { isValidBrazilianWhatsapp, normalizeWhatsapp } from "@/lib/whatsapp-auth";
 import { isValidTaxId, normalizeTaxId } from "@/lib/tax-id";
-import { formatPlanOptionLabel, type PlanOption } from "@/lib/plans";
+import {
+  FAMILY_MODEL_OPTIONS,
+  TRAINING_DAY_OPTIONS,
+  formatPlanOptionLabel,
+  parseFamilyPlanModel,
+  resolveOfficialFamilyPlan,
+  type FamilyPlanModel,
+  type PlanOption,
+} from "@/lib/plans";
 import { isMinor, validateStudentBirthFields } from "@/lib/student-age";
 import {
   PREPAID_PAYMENT_METHOD_LABELS,
@@ -99,6 +107,8 @@ export function FamilyRegistrationWizard({
 
   const [academyId, setAcademyId] = useState(lockedAcademyId ?? "");
   const [planId, setPlanId] = useState("");
+  const [familyModel, setFamilyModel] = useState<FamilyPlanModel | null>(null);
+  const [familyDays, setFamilyDays] = useState<(typeof TRAINING_DAY_OPTIONS)[number] | null>(null);
 
   const [paymentMethod, setPaymentMethod] = useState<PrepaidPaymentMethod | "">("");
   const [installments, setInstallments] = useState("1");
@@ -114,10 +124,16 @@ export function FamilyRegistrationWizard({
   const [justAddedKey, setJustAddedKey] = useState<string | null>(null);
 
   const selectedPlan = plans.find((p) => p.id === planId);
+  const coveredPractitioners =
+    (selectedPlan ? parseFamilyPlanModel(selectedPlan) : null) ?? familyModel;
   const machinePlan = isMachineBillingMode(selectedPlan?.billing_mode);
   const showGuardian = !!birthDate && isMinor(birthDate);
   const practitionerCount = countFamilyPractitioners(responsibleTrains === true, members.length);
   const totalAmount = selectedPlan ? planDisplayTotal(selectedPlan) : 0;
+  const remainingSlots =
+    coveredPractitioners == null
+      ? null
+      : Math.max(0, coveredPractitioners - (responsibleTrains === true ? 1 : 0));
 
   useEffect(() => {
     const load = async () => {
@@ -140,6 +156,8 @@ export function FamilyRegistrationWizard({
 
   useEffect(() => {
     setPlanId("");
+    setFamilyModel(null);
+    setFamilyDays(null);
     if (!academyId) {
       setPlans([]);
       return;
@@ -147,27 +165,30 @@ export function FamilyRegistrationWizard({
     let cancelled = false;
     const loadPlans = async () => {
       setLoadingPlans(true);
-      const { data, error } = await supabase.rpc("get_public_active_plans", { _academy_id: academyId });
+      const { data, error } = await supabase.rpc("get_public_active_plans", {
+        _academy_id: academyId,
+        _audience: "familia",
+      });
       if (cancelled) return;
       if (error) {
         toast({ title: "Não foi possível carregar planos", description: error.message, variant: "destructive" });
         setPlans([]);
       } else {
-        // Family V2 reuses the academy prepaid/monthly catalog (same price); no separate family SKU required.
         setPlans(
           (data ?? []).map((p) => ({
             id: p.id,
             name: p.name,
             monthly_price: Number(p.monthly_price),
             training_days_per_week: p.training_days_per_week,
-            audience: (p as PlanOption).audience,
+            audience: (p as PlanOption).audience ?? "familia",
+            category: (p as { category?: string | null }).category ?? null,
             plan_kind: (p as PlanOption).plan_kind,
             duration_months: (p as PlanOption).duration_months ?? 1,
             reference_monthly_price: (p as PlanOption).reference_monthly_price,
             package_total_amount: (p as PlanOption).package_total_amount,
-            billing_mode: (p as PlanOption).billing_mode ?? "asaas_monthly",
-            allows_installments: (p as PlanOption).allows_installments ?? false,
-            max_installments: (p as PlanOption).max_installments ?? 1,
+            billing_mode: (p as PlanOption).billing_mode ?? "machine_prepaid",
+            allows_installments: (p as PlanOption).allows_installments ?? true,
+            max_installments: (p as PlanOption).max_installments ?? 12,
             description: (p as PlanOption).description,
           })),
         );
@@ -181,10 +202,19 @@ export function FamilyRegistrationWizard({
   }, [academyId, toast]);
 
   useEffect(() => {
-    if (selectedPlan?.training_days_per_week && responsibleTrains) {
+    if (familyModel == null || familyDays == null) {
+      setPlanId("");
+      return;
+    }
+    const hit = resolveOfficialFamilyPlan(plans, familyModel, familyDays);
+    setPlanId(hit?.id ?? "");
+  }, [familyModel, familyDays, plans]);
+
+  useEffect(() => {
+    if (selectedPlan?.training_days_per_week) {
       setTrainingDays(selectedPlan.training_days_per_week);
     }
-  }, [selectedPlan?.id, selectedPlan?.training_days_per_week, responsibleTrains]);
+  }, [selectedPlan?.id, selectedPlan?.training_days_per_week]);
 
   const installmentPreview = useMemo(() => {
     if (!machinePlan || !selectedPlan || !paymentMethod) return null;
@@ -222,8 +252,26 @@ export function FamilyRegistrationWizard({
 
   const validateStepPlan = (): string | null => {
     if (!academyId) return "Selecione a academia.";
-    if (!planId) return "Selecione o plano familiar.";
+    if (familyModel == null) return "Escolha o modelo do Plano Familiar (1, 2 ou 3).";
+    if (familyDays == null) return "Escolha quantos dias por semana.";
+    if (!planId || !selectedPlan) {
+      return loadingPlans
+        ? "Carregando planos familiares..."
+        : "Plano oficial não encontrado para esta combinação. Contate a academia.";
+    }
+    if ((selectedPlan.audience ?? "").toLowerCase() !== "familia") {
+      return "Selecione um plano do catálogo familiar oficial.";
+    }
     return null;
+  };
+
+  const validateStepMembers = (): string | null => {
+    const check = validateFamilyWizardMembers(members, {
+      responsibleTrains,
+      financialResponsibleName: fullName,
+      expectedPractitionerCount: coveredPractitioners ?? undefined,
+    });
+    return check.ok ? null : check.error;
   };
 
   const validateStepPayment = (): string | null => {
@@ -233,6 +281,13 @@ export function FamilyRegistrationWizard({
   };
 
   const openNewMember = () => {
+    if (remainingSlots != null && members.length >= remainingSlots) {
+      toast({
+        title: `Este plano cobre ${coveredPractitioners} praticante(s). Remova alguém ou altere o plano.`,
+        variant: "destructive",
+      });
+      return;
+    }
     setLinkMode(false);
     setEditingKey(null);
     setDraftMember(createEmptyMemberDraft(selectedPlan?.training_days_per_week ?? 3));
@@ -242,6 +297,13 @@ export function FamilyRegistrationWizard({
   };
 
   const openLinkMember = () => {
+    if (remainingSlots != null && members.length >= remainingSlots) {
+      toast({
+        title: `Este plano cobre ${coveredPractitioners} praticante(s). Remova alguém ou altere o plano.`,
+        variant: "destructive",
+      });
+      return;
+    }
     setLinkMode(true);
     setEditingKey(null);
     setDraftMember({ ...createEmptyMemberDraft(selectedPlan?.training_days_per_week ?? 3), mode: "link" });
@@ -338,12 +400,9 @@ export function FamilyRegistrationWizard({
       setStep(1);
       return;
     }
-    const membersCheck = validateFamilyWizardMembers(members, {
-      responsibleTrains,
-      financialResponsibleName: fullName,
-    });
-    if (!membersCheck.ok) {
-      toast({ title: membersCheck.error, variant: "destructive" });
+    const err3 = validateStepMembers();
+    if (err3) {
+      toast({ title: err3, variant: "destructive" });
       setStep(2);
       return;
     }
@@ -440,12 +499,9 @@ export function FamilyRegistrationWizard({
       }
     }
     if (step === 2) {
-      const check = validateFamilyWizardMembers(members, {
-        responsibleTrains,
-        financialResponsibleName: fullName,
-      });
-      if (!check.ok) {
-        toast({ title: check.error, variant: "destructive" });
+      const err = validateStepMembers();
+      if (err) {
+        toast({ title: err, variant: "destructive" });
         return;
       }
       if (memberFormOpen) {
@@ -630,7 +686,7 @@ export function FamilyRegistrationWizard({
       ) : null}
 
       {step === 1 ? (
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div className="space-y-1.5">
             <Label>Academia</Label>
             <Select
@@ -650,29 +706,87 @@ export function FamilyRegistrationWizard({
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label>Plano familiar</Label>
-            <Select value={planId || undefined} onValueChange={setPlanId} disabled={!academyId || loadingPlans}>
-              <SelectTrigger>
-                <SelectValue placeholder={loadingPlans ? "Carregando..." : "Selecione o plano"} />
-              </SelectTrigger>
-              <SelectContent>
-                {plans.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {formatPlanOptionLabel(p)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {selectedPlan ? (
-            <p className="text-sm text-muted-foreground">
-              Valor do contrato: {formatCurrency(totalAmount)}
-              {selectedPlan.duration_months
-                ? ` · ${selectedPlan.duration_months} ${selectedPlan.duration_months === 1 ? "mês" : "meses"}`
-                : ""}
-            </p>
-          ) : null}
+
+          {selectedPlan && familyModel != null && familyDays != null ? (
+            <div className="rounded-xl border border-border p-4 space-y-2">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Plano selecionado</p>
+              <p className="font-medium">Plano Familiar {familyModel}</p>
+              <p className="text-sm text-muted-foreground">
+                {familyDays === 1 ? "1 dia por semana" : `${familyDays} dias por semana`}
+              </p>
+              <p className="text-lg font-semibold">{formatCurrency(totalAmount)}</p>
+              <p className="text-xs text-muted-foreground">
+                Valor do pacote familiar (não multiplica por integrante).
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setFamilyModel(null);
+                  setFamilyDays(null);
+                  setPlanId("");
+                }}
+              >
+                Alterar plano
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label>Qual Plano Familiar deseja contratar?</Label>
+                <div className="grid gap-2">
+                  {FAMILY_MODEL_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.model}
+                      type="button"
+                      disabled={!academyId || loadingPlans}
+                      onClick={() => {
+                        setFamilyModel(opt.model);
+                        setFamilyDays(null);
+                      }}
+                      className={`rounded-xl border px-4 py-3 text-left transition-colors ${
+                        familyModel === opt.model
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:border-primary/40"
+                      }`}
+                    >
+                      <p className="font-medium">{opt.label}</p>
+                      <p className="text-sm text-muted-foreground">{opt.subtitle}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {familyModel != null ? (
+                <div className="space-y-2">
+                  <Label>Quantos dias por semana?</Label>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {TRAINING_DAY_OPTIONS.map((days) => (
+                      <button
+                        key={days}
+                        type="button"
+                        disabled={loadingPlans}
+                        onClick={() => setFamilyDays(days)}
+                        className={`rounded-xl border px-3 py-3 text-center transition-colors ${
+                          familyDays === days
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:border-primary/40"
+                        }`}
+                      >
+                        <p className="font-medium">{days === 1 ? "1 dia" : `${days} dias`}</p>
+                      </button>
+                    ))}
+                  </div>
+                  {familyDays != null && !selectedPlan && !loadingPlans ? (
+                    <p className="text-sm text-destructive">
+                      Combinação indisponível no catálogo. Contate a academia.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
       ) : null}
 
@@ -692,8 +806,22 @@ export function FamilyRegistrationWizard({
 
           <div className="space-y-2">
             <p className="text-sm font-medium">Integrantes</p>
+            {coveredPractitioners != null ? (
+              <p className="text-xs text-muted-foreground">
+                Plano Familiar {coveredPractitioners}: {practitionerCount}/{coveredPractitioners}{" "}
+                praticante(s)
+                {responsibleTrains
+                  ? " (responsável treina + integrantes)"
+                  : " (somente integrantes; responsável não treina)"}
+                {remainingSlots === 0 ? " — vagas preenchidas." : remainingSlots != null ? ` — faltam ${remainingSlots}.` : ""}
+              </p>
+            ) : null}
             {members.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhum integrante adicionado ainda.</p>
+              <p className="text-sm text-muted-foreground">
+                {coveredPractitioners === 1 && responsibleTrains
+                  ? "Nenhum integrante adicional necessário para o Plano Familiar 1."
+                  : "Nenhum integrante adicionado ainda."}
+              </p>
             ) : (
               <ul className="space-y-2">
                 {members.map((m) => (
@@ -1009,6 +1137,9 @@ export function FamilyRegistrationWizard({
           <p>
             <span className="text-muted-foreground">Plano:</span>{" "}
             {selectedPlan ? formatPlanOptionLabel(selectedPlan) : "—"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Valor do pacote: {formatCurrency(totalAmount)} (não multiplica por integrante).
           </p>
           <p>
             <span className="text-muted-foreground">Forma de pagamento:</span>{" "}
