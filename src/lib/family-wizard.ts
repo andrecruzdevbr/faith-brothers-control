@@ -93,7 +93,7 @@ export function validatePractitionerSports(input: {
 
 export function validateFamilyWizardMembers(
   members: FamilyWizardMemberDraft[],
-  options?: { responsibleTrains?: boolean | null },
+  options?: { responsibleTrains?: boolean | null; financialResponsibleName?: string | null },
 ): { ok: true } | { ok: false; error: string } {
   const responsibleTrains = options?.responsibleTrains === true;
   if (!members.length) {
@@ -105,6 +105,7 @@ export function validateFamilyWizardMembers(
     };
   }
 
+  const holder = String(options?.financialResponsibleName ?? "").trim();
   const linked = new Set<string>();
   for (const m of members) {
     if (m.mode === "link") {
@@ -131,11 +132,20 @@ export function validateFamilyWizardMembers(
     if (!m.birthDate) {
       return { ok: false, error: "Informe a data de nascimento de cada integrante." };
     }
+    // Minors inherit legal guardian from family holder — no per-member field.
     const birthError = validateStudentBirthFields({
       birthDate: m.birthDate,
-      guardianName: m.guardianName,
+      guardianName: isMinor(m.birthDate) ? holder || m.guardianName : m.guardianName,
     });
-    if (birthError) return { ok: false, error: birthError };
+    if (birthError) {
+      if (isMinor(m.birthDate) && !holder) {
+        return {
+          ok: false,
+          error: "Informe o nome do responsável financeiro antes de adicionar menores.",
+        };
+      }
+      return { ok: false, error: birthError };
+    }
 
     if (!m.relationship.trim()) {
       return { ok: false, error: "Informe o parentesco de cada integrante." };
@@ -152,7 +162,11 @@ export function validateFamilyWizardMembers(
   return { ok: true };
 }
 
-export function buildFamilyWizardMemberPayload(members: FamilyWizardMemberDraft[]) {
+export function buildFamilyWizardMemberPayload(
+  members: FamilyWizardMemberDraft[],
+  financialResponsibleName?: string | null,
+) {
+  const holder = String(financialResponsibleName ?? "").trim();
   return members.map((m) => {
     if (m.mode === "link" && m.existingStudentId) {
       return {
@@ -165,6 +179,7 @@ export function buildFamilyWizardMemberPayload(members: FamilyWizardMemberDraft[
         notes: m.notes.trim() || null,
       };
     }
+    const minor = isMinor(m.birthDate);
     return {
       full_name: m.fullName.trim(),
       birth_date: m.birthDate,
@@ -172,7 +187,7 @@ export function buildFamilyWizardMemberPayload(members: FamilyWizardMemberDraft[
       degrees: 0,
       training_days: m.trainingDays,
       relationship: m.relationship.trim() || "integrante",
-      guardian_name: isMinor(m.birthDate) ? m.guardianName.trim() || null : null,
+      guardian_name: minor ? holder || null : null,
       notes: m.notes.trim() || null,
     };
   });

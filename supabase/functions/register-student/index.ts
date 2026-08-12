@@ -8,7 +8,7 @@ import {
   dispatchRegistrationWhatsApp,
 } from "../_shared/registration-whatsapp.ts";
 import { logSafeError, sanitizeLogError } from "../_shared/sanitize-log.ts";
-import { validateStudentBirthFields } from "../_shared/student-age.ts";
+import { isMinor, validateStudentBirthFields } from "../_shared/student-age.ts";
 
 type FamilyWizardMember = {
   full_name?: string;
@@ -346,10 +346,16 @@ Deno.serve(async (req) => {
         : Number(body.responsible_weekly_frequency);
     const responsibleTrains = body.responsible_trains !== false;
     const wizardMembers = Array.isArray(body.members)
-      ? body.members.map((m) => ({
-          ...m,
-          degrees: 0,
-        }))
+      ? body.members.map((m) => {
+          const birth = String(m.birth_date ?? "").trim();
+          const minor = birth ? isMinor(birth) : false;
+          return {
+            ...m,
+            degrees: 0,
+            // Family holder is the legal guardian of minor dependents (ignore client value).
+            guardian_name: minor ? financialResponsibleName || fullName : null,
+          };
+        })
       : [];
     const isFamilyWizard = contractType === "familiar" && familyMode === "wizard";
     const joiningFamily = contractType === "familiar" && familyMode === "join";

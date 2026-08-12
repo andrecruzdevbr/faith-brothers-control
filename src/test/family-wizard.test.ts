@@ -19,7 +19,7 @@ describe("family registration v2", () => {
     expect(validateFamilyWizardMembers([], { responsibleTrains: false }).ok).toBe(false);
   });
 
-  it("accepts new members with belt only (degrees default 0) and without WhatsApp/CPF", () => {
+  it("accepts minor dependents without typing guardian when holder name is known", () => {
     const member = {
       ...createEmptyMemberDraft(3),
       fullName: "Filho Um",
@@ -27,9 +27,30 @@ describe("family registration v2", () => {
       belt: "Cinza",
       degrees: 0,
       relationship: "filho",
-      guardianName: "Responsável Legal",
+      guardianName: "",
     };
-    expect(validateFamilyWizardMembers([member], { responsibleTrains: false }).ok).toBe(true);
+    expect(
+      validateFamilyWizardMembers([member], {
+        responsibleTrains: false,
+        financialResponsibleName: "André Silva",
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("rejects minor dependents if holder name is missing", () => {
+    const member = {
+      ...createEmptyMemberDraft(3),
+      fullName: "Filho Um",
+      birthDate: "2012-05-01",
+      belt: "Cinza",
+      relationship: "filho",
+      guardianName: "",
+    };
+    const result = validateFamilyWizardMembers([member], {
+      responsibleTrains: false,
+      financialResponsibleName: "",
+    });
+    expect(result.ok).toBe(false);
   });
 
   it("defaults degrees to 0 and rejects invalid degrees when provided", () => {
@@ -52,46 +73,80 @@ describe("family registration v2", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("builds payload without billing/whatsapp fields on members", () => {
-    const payload = buildFamilyWizardMemberPayload([
-      {
-        key: "1",
-        mode: "new",
-        fullName: "Filha",
-        birthDate: "2014-01-01",
-        belt: "Branca",
-        degrees: 0,
-        trainingDays: 2,
-        relationship: "filha",
-        guardianName: "Mãe",
-        notes: "obs",
-      },
-      {
-        key: "2",
-        mode: "link",
-        fullName: "Existente",
-        birthDate: "",
-        belt: "Azul",
-        degrees: 1,
-        trainingDays: 3,
-        relationship: "filho",
-        guardianName: "",
-        notes: "",
-        existingStudentId: "abc",
-      },
-    ]);
+  it("builds payload with holder as guardian for all minor dependents", () => {
+    const payload = buildFamilyWizardMemberPayload(
+      [
+        {
+          key: "1",
+          mode: "new",
+          fullName: "Gabriel",
+          birthDate: "2014-01-01",
+          belt: "Branca",
+          degrees: 0,
+          trainingDays: 2,
+          relationship: "filho",
+          guardianName: "IGNORAR DIGITADO",
+          notes: "obs",
+        },
+        {
+          key: "2",
+          mode: "new",
+          fullName: "Laura",
+          birthDate: "2016-06-01",
+          belt: "Branca",
+          degrees: 0,
+          trainingDays: 3,
+          relationship: "filha",
+          guardianName: "",
+          notes: "",
+        },
+        {
+          key: "3",
+          mode: "link",
+          fullName: "Existente",
+          birthDate: "",
+          belt: "Azul",
+          degrees: 1,
+          trainingDays: 3,
+          relationship: "filho",
+          guardianName: "",
+          notes: "",
+          existingStudentId: "abc",
+        },
+      ],
+      "André",
+    );
     expect(payload[0]).toMatchObject({
-      full_name: "Filha",
-      birth_date: "2014-01-01",
-      training_days: 2,
-      belt: "Branca",
-      degrees: 0,
-      relationship: "filha",
+      full_name: "Gabriel",
+      guardian_name: "André",
+      relationship: "filho",
+    });
+    expect(payload[1]).toMatchObject({
+      full_name: "Laura",
+      guardian_name: "André",
     });
     expect(payload[0]).not.toHaveProperty("billing_tax_id");
     expect(payload[0]).not.toHaveProperty("payment_method");
     expect(payload[0]).not.toHaveProperty("whatsapp");
-    expect(payload[1]).toMatchObject({ existing_student_id: "abc", training_days: 3, degrees: 0 });
+    expect(payload[0]).not.toHaveProperty("email");
+    expect(payload[1].guardian_name).toBe(payload[0].guardian_name);
+    expect(payload[2]).toMatchObject({ existing_student_id: "abc", training_days: 3, degrees: 0 });
+  });
+
+  it("keeps adult dependent without guardian_name", () => {
+    const payload = buildFamilyWizardMemberPayload(
+      [
+        {
+          ...createEmptyMemberDraft(2),
+          fullName: "Adulto",
+          birthDate: "2000-01-01",
+          relationship: "irmão",
+          guardianName: "Não deve ir",
+        },
+      ],
+      "André",
+    );
+    expect(payload[0].guardian_name).toBeNull();
   });
 
   it("counts practitioners without multiplying revenue share incorrectly", () => {

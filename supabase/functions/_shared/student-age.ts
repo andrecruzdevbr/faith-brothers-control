@@ -38,6 +38,11 @@ export function getAgeYears(birthDate: string, today?: string | Date): number | 
   return age;
 }
 
+export function isMinor(birthDate: string, today?: string | Date): boolean {
+  const age = getAgeYears(birthDate, today);
+  return age !== null && age < 18;
+}
+
 export function validateStudentBirthFields(input: BirthValidationInput): string | null {
   const raw = String(input.birthDate ?? "").trim();
   if (!raw) return "Informe a data de nascimento.";

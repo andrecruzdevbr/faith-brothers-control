@@ -277,6 +277,7 @@ export function FamilyRegistrationWizard({
     } else {
       const check = validateFamilyWizardMembers([{ ...draftMember, mode: "new" }], {
         responsibleTrains: true,
+        financialResponsibleName: fullName,
       });
       if (!check.ok) {
         toast({ title: check.error, variant: "destructive" });
@@ -337,7 +338,10 @@ export function FamilyRegistrationWizard({
       setStep(1);
       return;
     }
-    const membersCheck = validateFamilyWizardMembers(members, { responsibleTrains });
+    const membersCheck = validateFamilyWizardMembers(members, {
+      responsibleTrains,
+      financialResponsibleName: fullName,
+    });
     if (!membersCheck.ok) {
       toast({ title: membersCheck.error, variant: "destructive" });
       setStep(2);
@@ -391,7 +395,7 @@ export function FamilyRegistrationWizard({
           belt: responsibleTrains ? belt : null,
           degrees: responsibleTrains ? 0 : null,
           responsible_weekly_frequency: responsibleTrains ? trainingDays : null,
-          members: buildFamilyWizardMemberPayload(members),
+          members: buildFamilyWizardMemberPayload(members, fullName),
         },
         { requireAuth: adminCreated },
       );
@@ -436,7 +440,10 @@ export function FamilyRegistrationWizard({
       }
     }
     if (step === 2) {
-      const check = validateFamilyWizardMembers(members, { responsibleTrains });
+      const check = validateFamilyWizardMembers(members, {
+        responsibleTrains,
+        financialResponsibleName: fullName,
+      });
       if (!check.ok) {
         toast({ title: check.error, variant: "destructive" });
         return;
@@ -854,13 +861,10 @@ export function FamilyRegistrationWizard({
                     />
                   </div>
                   {draftMember.birthDate && isMinor(draftMember.birthDate) ? (
-                    <div className="space-y-1.5">
-                      <Label>Nome do responsável legal *</Label>
-                      <Input
-                        value={draftMember.guardianName}
-                        onChange={(e) => setDraftMember((d) => ({ ...d, guardianName: e.target.value }))}
-                      />
-                    </div>
+                    <p className="text-xs text-muted-foreground rounded-md border border-border bg-secondary/40 p-2">
+                      Responsável legal: <span className="font-medium">{fullName.trim() || "—"}</span>
+                      {" "}(o responsável financeiro deste cadastro).
+                    </p>
                   ) : null}
                   {sportsFields("new", draftMember, (patch) =>
                     setDraftMember((d) => ({ ...d, ...patch })),
@@ -892,7 +896,8 @@ export function FamilyRegistrationWizard({
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    WhatsApp, e-mail, CPF/CNPJ e pagamento ficam apenas com o responsável financeiro.
+                    WhatsApp, CPF/CNPJ, pagamento e responsável legal ficam com o responsável
+                    financeiro deste cadastro.
                   </p>
                 </>
               )}
