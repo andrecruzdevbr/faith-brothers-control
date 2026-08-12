@@ -59,9 +59,15 @@ WhatsApp real: **não enviado** neste go-live.
 
 Alteração publicada via push `main` → Vercel:
 
-- Sem “Responsável legal” nos dependentes
+- Sem input “Responsável legal” nos dependentes (label informativo com nome do holder)
 - Sem CPF/e-mail repetidos no dependente
 - Única definição do responsável principal no wizard Family
+
+| Check | Resultado |
+|-------|-----------|
+| `main` = `origin/main` (`505e5d4`) | SIM |
+| `/cadastro` HTTP 200 | SIM |
+| Bundle live com `Responsável legal:` (label) + `financialResponsibleName` | SIM |
 
 ## Testes finais (pré-commit)
 
