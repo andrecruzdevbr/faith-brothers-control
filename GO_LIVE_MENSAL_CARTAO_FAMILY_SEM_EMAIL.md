@@ -48,14 +48,16 @@ Aplicada. Migration list: Local = Remote para `20260813120000`.
 
 ## Deploy
 
-- Commit: `feat: add monthly payment choice and simplify family signup`
-- Push: `origin/main`
-- Vercel: HTTP 200
+- Commit: `a1842d7` — `feat: add monthly payment choice and simplify family signup`
+- Push: `origin/main` (`main = origin/main`)
+- Vercel Production Ready (~2m, HTTP **200** em `/`, `/cadastro`, `/login`, `/alunos`)
+- Bundle: mensal boleto+cartão **SIM**; cadastro sem label e-mail; alunos com refs Boleto
 
 ## Smoke (sem efeito financeiro)
 
 - Sem boleto real / cobrança Asaas / confirmação cartão / WhatsApp
-- Validação estrutural UI + RPC
+- UI: Boleto|Cartão no mensal; Family sem `email@exemplo.com`
+- RPC produção: cartão → skip Asaas + `aguardando_conferencia`
 
 ## Checklist
 
