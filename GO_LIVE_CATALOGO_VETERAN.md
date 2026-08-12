@@ -45,24 +45,29 @@ Aplicada com sucesso.
 
 ## Deploy
 
-- Commit: `feat: add official veteran plan catalog`
-- Push: `origin/main`
-- Vercel: aguardar HTTP 200
+- Commit: `cc052fc` — `feat: add official veteran plan catalog`
+- Push: `origin/main` (`93253f2..cc052fc`)
+- Vercel Production: Ready (~17s) — HTTP **200**
+- Bundle validado: `Total contratado`, `formatVeteranPrepaid`, `Cobertura`, frequência 2/3/5
 
 ## Smoke (sem cobrança / sem WA real)
 
-Validação estrutural no banco + código:
+Validação estrutural no banco + frontend live:
 
-- ADM pode escolher Mensal / T / S / A após aprovação
-- Mensal força boleto (`set_veteran_billing_period`)
-- Prepaid fica `aguardando_conferencia` até confirmação ADM
-- Meses só após `confirm_individual_prepaid_payment`
+- 6 planos veteran ativos (3 mensal + 3 prepaid)
+- RPCs `set_veteran_billing_period` e `confirm_individual_prepaid_payment` presentes
+- Mensal = `asaas_monthly` (boleto); T/S/A = `machine_prepaid` + `aguardando_conferencia` até ADM
+- Frontend live exibe total contratado / cobertura
 - **Não** gerou boleto real, **não** confirmou cartão, **não** enviou WhatsApp
 
-## Restrições respeitadas
+## Checklist final
 
-- Sem cobrança real
-- Sem confirmação de pagamento real
-- Sem WhatsApp real no smoke
-- Sem editar migration antiga
-- Sem apagar dados de alunos
+| Item | Resultado |
+|------|-----------|
+| migration aplicada | SIM |
+| mensal 2/3/5 boleto | SIM |
+| T/S/A totais 480/780/1320 | SIM |
+| frequência independente | SIM |
+| new_student fingerprint | inalterado |
+| GitHub / Vercel | SIM |
+| pode testar veterano real | SIM |
