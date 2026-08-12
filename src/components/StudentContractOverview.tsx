@@ -238,7 +238,7 @@ export function StudentContractOverview({ studentId }: Props) {
               <span className="font-medium">{view.paymentLabel}</span>
             </p>
           ) : null}
-          {view.paymentMethodLabel && !view.isVeteranAwaitingPlan && !view.isAwaitingPaymentConfirm ? (
+          {view.paymentMethodLabel && !view.isVeteranAwaitingPlan ? (
             <p>
               <span className="text-muted-foreground">Forma de pagamento:</span>{" "}
               <span className="font-medium">{view.paymentMethodLabel}</span>

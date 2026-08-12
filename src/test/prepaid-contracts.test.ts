@@ -112,6 +112,26 @@ describe("Asaas skip rules", () => {
     ).toEqual({ skip: false });
   });
 
+  it("skips Asaas when student chose cartão/maquininha", () => {
+    expect(
+      shouldSkipAsaasForPrepaidMonth({
+        billingMode: "asaas_monthly",
+        hasPaidCoverageForMonth: false,
+        paymentMethod: "cartao_credito",
+      }),
+    ).toEqual({ skip: true, reason: "skipped_machine_payment_method" });
+  });
+
+  it("skips Asaas while awaiting machine confirmation", () => {
+    expect(
+      shouldSkipAsaasForPrepaidMonth({
+        billingMode: "asaas_monthly",
+        hasPaidCoverageForMonth: false,
+        paymentReviewStatus: "aguardando_conferencia",
+      }),
+    ).toEqual({ skip: true, reason: "skipped_awaiting_machine_payment" });
+  });
+
   it("family coverage reason", () => {
     expect(familyCronSkipReason(true)).toBe("skipped_family_contract_covered");
     expect(familyCronSkipReason(false)).toBeNull();

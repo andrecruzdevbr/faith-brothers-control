@@ -73,11 +73,11 @@ describe("official new_student catalog matrix", () => {
     expect(groups.mensal.map((p) => p.training_days_per_week)).toEqual([1, 2, 3, 5]);
   });
 
-  it("prepaid period payment excludes boleto; monthly keeps Asaas boleto", () => {
+  it("prepaid period payment excludes boleto; monthly offers only boleto XOR cartão", () => {
     const plans = catalogAsPlans();
     const monthly = plans.find((p) => p.plan_kind === "mensal")!;
     const trimestral = plans.find((p) => p.plan_kind === "trimestral")!;
-    expect(paymentMethodsForNewStudentPlan(monthly)).toContain("boleto");
+    expect(paymentMethodsForNewStudentPlan(monthly)).toEqual(["boleto", "cartao_credito"]);
     expect(paymentMethodsForNewStudentPlan(trimestral)).not.toContain("boleto");
     expect(requiresAdminPaymentConfirmation("cartao_credito")).toBe(true);
   });

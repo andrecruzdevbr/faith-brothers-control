@@ -227,10 +227,12 @@ export function buildStudentPlanSituationView(
   let paymentMethodLabel: string | null = null;
   if (isVeteranAwaitingPlan) {
     paymentMethodLabel = "Aguardando definição";
-  } else if (!input.hideFinancialDetails && !isAwaitingPaymentConfirm) {
+  } else if (!input.hideFinancialDetails) {
     const method = input.contract?.payment_method ?? input.requested_payment_method;
-    if (method === "boleto") paymentMethodLabel = "Boleto (Asaas)";
-    else if (method && method in PREPAID_PAYMENT_METHOD_LABELS) {
+    if (method === "boleto") paymentMethodLabel = "Boleto";
+    else if (method === "cartao_credito" || method === "cartao_debito") {
+      paymentMethodLabel = "Cartão / maquininha";
+    } else if (method && method in PREPAID_PAYMENT_METHOD_LABELS) {
       paymentMethodLabel = PREPAID_PAYMENT_METHOD_LABELS[method as PrepaidPaymentMethod];
     } else if (method) paymentMethodLabel = method;
   }

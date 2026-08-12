@@ -151,11 +151,20 @@ export function listOpenablePlanPeriods(
 }
 
 export const NEW_STUDENT_PAYMENT_LABELS: Record<string, string> = {
-  boleto: "Mensal / Boleto (Asaas)",
-  cartao_credito: "Cartão de crédito (maquininha)",
+  boleto: "Boleto",
+  cartao_credito: "Cartão de crédito / maquininha",
   cartao_debito: "Cartão de débito (maquininha)",
   pix: "Pix (na academia)",
   dinheiro: "Dinheiro (na academia)",
+};
+
+/** Monthly (new_student + veteran): only boleto XOR card/machine. */
+export const MONTHLY_PAYMENT_OPTIONS = ["boleto", "cartao_credito"] as const;
+export type MonthlyPaymentOption = (typeof MONTHLY_PAYMENT_OPTIONS)[number];
+
+export const MONTHLY_PAYMENT_LABELS: Record<MonthlyPaymentOption, string> = {
+  boleto: "Boleto",
+  cartao_credito: "Cartão de crédito / maquininha",
 };
 
 export const VETERAN_AWAITING_PRICE_MESSAGE =
@@ -250,11 +259,25 @@ export function groupNewStudentPlans(plans: PlanOption[]): Record<
 }
 
 export function paymentMethodsForNewStudentPlan(plan: PlanOption | null | undefined): string[] {
-  if (!plan) return Object.keys(NEW_STUDENT_PAYMENT_LABELS);
+  if (!plan) return [...MONTHLY_PAYMENT_OPTIONS];
   if (isMachineBillingMode(plan.billing_mode) || isPeriodPlan(plan)) {
     return ["cartao_credito", "cartao_debito", "pix", "dinheiro"];
   }
-  return Object.keys(NEW_STUDENT_PAYMENT_LABELS);
+  // Mensal Asaas: only boleto XOR cartão/maquininha
+  return [...MONTHLY_PAYMENT_OPTIONS];
+}
+
+export function paymentMethodsForVeteranMonthly(): MonthlyPaymentOption[] {
+  return [...MONTHLY_PAYMENT_OPTIONS];
+}
+
+export function isMonthlyPaymentOption(method?: string | null): method is MonthlyPaymentOption {
+  return method === "boleto" || method === "cartao_credito";
+}
+
+/** Card/machine never generates Asaas boleto (backend + cron must enforce). */
+export function shouldSkipAsaasForPaymentMethod(method?: string | null): boolean {
+  return isPhysicalMachinePaymentMethod(method);
 }
 
 export function validateVeteranTrainingDays(

@@ -73,13 +73,28 @@ export function estimatedInstallmentAmount(total: number, installments: number):
 export type PrepaidCronSkipReason =
   | "skipped_prepaid_month_covered"
   | "skipped_family_contract_covered"
-  | "skipped_non_asaas_plan";
+  | "skipped_non_asaas_plan"
+  | "skipped_machine_payment_method"
+  | "skipped_awaiting_machine_payment";
 
 export function shouldSkipAsaasForPrepaidMonth(params: {
   billingMode?: PlanBillingMode | null;
   hasPaidCoverageForMonth: boolean;
   coverageSource?: "individual" | "family" | null;
+  paymentMethod?: string | null;
+  paymentReviewStatus?: string | null;
 }): { skip: boolean; reason?: PrepaidCronSkipReason } {
+  if (params.paymentReviewStatus === "aguardando_conferencia") {
+    return { skip: true, reason: "skipped_awaiting_machine_payment" };
+  }
+  if (
+    params.paymentMethod === "cartao_credito" ||
+    params.paymentMethod === "cartao_debito" ||
+    params.paymentMethod === "pix" ||
+    params.paymentMethod === "dinheiro"
+  ) {
+    return { skip: true, reason: "skipped_machine_payment_method" };
+  }
   if (params.hasPaidCoverageForMonth) {
     return {
       skip: true,

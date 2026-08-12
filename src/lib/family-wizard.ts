@@ -36,7 +36,6 @@ export type FamilyWizardResponsibleDraft = {
   fullName: string;
   whatsapp: string;
   birthDate: string;
-  email: string;
   billingTaxId: string;
   trains: boolean | null;
   belt: string;

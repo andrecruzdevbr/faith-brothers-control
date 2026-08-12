@@ -7,11 +7,15 @@ import { supabase } from "@/integrations/supabase/client";
 import type { PlanOption } from "@/lib/plans";
 import {
   BILLING_PERIOD_LABELS,
+  MONTHLY_PAYMENT_LABELS,
+  MONTHLY_PAYMENT_OPTIONS,
   VETERAN_AWAITING_PRICE_MESSAGE,
   formatVeteranPrepaidPriceSummary,
   listConfiguredVeteranPeriods,
   matchVeteranPlan,
+  paymentMethodsForVeteranMonthly,
   type BillingPeriodChoice,
+  type MonthlyPaymentOption,
   type VeteranTrainingDays,
   validateVeteranTrainingDays,
 } from "@/lib/registration-flows";
@@ -32,6 +36,7 @@ type Props = {
 export function VeteranPeriodDialog({ student, onDone }: Props) {
   const { toast } = useToast();
   const [period, setPeriod] = useState<BillingPeriodChoice | "">("");
+  const [monthlyPayment, setMonthlyPayment] = useState<MonthlyPaymentOption>("boleto");
   const [paymentMethod, setPaymentMethod] = useState<PrepaidPaymentMethod>("cartao_credito");
   const [installments, setInstallments] = useState("1");
   const [submitting, setSubmitting] = useState(false);
@@ -111,6 +116,8 @@ export function VeteranPeriodDialog({ student, onDone }: Props) {
   const noConfiguredPlans = !loadingPlans && daysOk && configuredPeriods.length === 0;
   const isPrepaidPeriod =
     period === "trimestral" || period === "semestral" || period === "anual";
+  const isMensal = period === "mensal";
+  const monthlyOptions = paymentMethodsForVeteranMonthly();
 
   const onConfirm = async () => {
     if (!period) {
@@ -125,17 +132,27 @@ export function VeteranPeriodDialog({ student, onDone }: Props) {
       });
       return;
     }
+    if (isMensal && !MONTHLY_PAYMENT_OPTIONS.includes(monthlyPayment)) {
+      toast({ title: "Selecione boleto ou cartão", variant: "destructive" });
+      return;
+    }
     setSubmitting(true);
     try {
+      const method = isMensal ? monthlyPayment : paymentMethod;
       const { error } = await supabase.rpc("set_veteran_billing_period", {
         _student_id: student.id,
         _period: period,
-        _payment_method: period === "mensal" ? "boleto" : paymentMethod,
-        _installments: period === "mensal" ? null : Number(installments || 1),
+        _payment_method: method,
+        _installments:
+          isMensal && monthlyPayment === "boleto"
+            ? null
+            : method === "cartao_credito"
+              ? Number(installments || 1)
+              : 1,
       });
       if (error) throw error;
 
-      if (isPrepaidPeriod) {
+      if (isPrepaidPeriod || (isMensal && monthlyPayment === "cartao_credito")) {
         toast({
           title: "Plano definido",
           description: "Aguardando confirmação do pagamento na maquininha pelo administrador.",
@@ -143,7 +160,7 @@ export function VeteranPeriodDialog({ student, onDone }: Props) {
       } else {
         toast({
           title: "Plano mensal veterano ativado",
-          description: "Aluno ativo. Cobrança Asaas seguirá o calendário configurado.",
+          description: "Aluno ativo. Cobrança Asaas (boleto) seguirá o calendário configurado.",
         });
       }
       onDone();
@@ -205,7 +222,7 @@ export function VeteranPeriodDialog({ student, onDone }: Props) {
             </p>
           ) : (
             <p className="text-muted-foreground">
-              {formatCurrency(Number(matchedPlan.monthly_price))} / mês · Boleto (Asaas)
+              {formatCurrency(Number(matchedPlan.monthly_price))} / mês
             </p>
           )}
           <p className="text-xs text-muted-foreground">
@@ -225,6 +242,37 @@ export function VeteranPeriodDialog({ student, onDone }: Props) {
         <p className="text-sm text-amber-700 dark:text-amber-400 rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
           {VETERAN_AWAITING_PRICE_MESSAGE}
         </p>
+      ) : null}
+
+      {isMensal && matchedPlan ? (
+        <div className="space-y-2">
+          <Label>Forma de pagamento</Label>
+          <Select
+            value={monthlyPayment}
+            onValueChange={(v) => setMonthlyPayment(v as MonthlyPaymentOption)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Boleto ou cartão" />
+            </SelectTrigger>
+            <SelectContent>
+              {monthlyOptions.map((m) => (
+                <SelectItem key={m} value={m}>
+                  {MONTHLY_PAYMENT_LABELS[m]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {monthlyPayment === "boleto" ? (
+            <p className="text-xs text-muted-foreground">
+              Boleto Asaas: cobrança mensal conforme calendário. Sem confirmação de maquininha.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Cartão nunca é considerado pago automaticamente. Use “Pagamento aprovado” depois.
+              Nenhum boleto Asaas será gerado.
+            </p>
+          )}
+        </div>
       ) : null}
 
       {isPrepaidPeriod && matchedPlan ? (
@@ -268,12 +316,6 @@ export function VeteranPeriodDialog({ student, onDone }: Props) {
             Cartão nunca é considerado pago automaticamente. Use “Pagamento aprovado” depois.
           </p>
         </>
-      ) : null}
-
-      {period === "mensal" && matchedPlan ? (
-        <p className="text-xs text-muted-foreground">
-          Mensal veterano usa plano com audience=veterano. Forma de pagamento: boleto Asaas.
-        </p>
       ) : null}
 
       <Button

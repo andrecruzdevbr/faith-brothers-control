@@ -88,7 +88,6 @@ export function FamilyRegistrationWizard({
   const [fullName, setFullName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [birthDate, setBirthDate] = useState("");
-  const [email, setEmail] = useState("");
   const [billingTaxId, setBillingTaxId] = useState("");
   const [responsibleTrains, setResponsibleTrains] = useState<boolean | null>(null);
   const [belt, setBelt] = useState("Branca");
@@ -208,7 +207,6 @@ export function FamilyRegistrationWizard({
     if (!birthDate) return "Informe a data de nascimento.";
     const birthError = validateStudentBirthFields({ birthDate, guardianName });
     if (birthError) return birthError;
-    if (!email.trim() || !email.includes("@")) return "Informe um e-mail válido.";
     if (!isValidTaxId(billingTaxId)) return "CPF/CNPJ de cobrança inválido.";
     if (responsibleTrains === null) return "Informe se o responsável financeiro também vai treinar.";
     if (responsibleTrains) {
@@ -385,7 +383,7 @@ export function FamilyRegistrationWizard({
           billing_tax_id: normalizeTaxId(billingTaxId),
           payment_method: machinePlan ? paymentMethod : null,
           installments: machinePlan ? resolvedInstallments : null,
-          financial_responsible_email: email.trim(),
+          financial_responsible_email: null,
           financial_responsible_name: fullName.trim(),
           financial_responsible_phone: normalizeWhatsapp(whatsapp),
           family_name: familyName.trim() || `Família ${fullName.trim()}`,
@@ -550,10 +548,6 @@ export function FamilyRegistrationWizard({
               <Input value={guardianName} onChange={(e) => setGuardianName(e.target.value)} />
             </div>
           ) : null}
-          <div className="space-y-1.5">
-            <Label>E-mail</Label>
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@exemplo.com" />
-          </div>
           <div className="space-y-1.5">
             <Label>CPF ou CNPJ de cobrança</Label>
             <Input

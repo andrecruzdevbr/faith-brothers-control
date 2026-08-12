@@ -193,6 +193,6 @@ describe("official veteran catalog", () => {
     expect(view.totalAmountLabel).toBe("780.00");
     expect(view.coverage).toHaveLength(6);
     expect(view.coverageCountLabel).toBe("6 meses");
-    expect(view.paymentMethodLabel?.toLowerCase()).toContain("crédito");
+    expect(view.paymentMethodLabel?.toLowerCase()).toContain("cartão");
   });
 });
