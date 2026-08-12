@@ -73,13 +73,19 @@ export type StudentPlanSituationView = {
   planLabel: string;
   frequencyLabel: string;
   frequencyCaption: string;
+  /** Monthly amount (raw number string) when known. */
   amountLabel: string | null;
+  /** Contractual package total (raw number string) for prepaid. */
+  totalAmountLabel: string | null;
+  /** e.g. "/mês" suffix hint for amountLabel. */
+  amountSuffix: string | null;
   paymentMethodLabel: string | null;
   /** Financeiro / Pagamento line */
   paymentLabel: string | null;
   financialLabel: string | null;
   periodLabel: string | null;
   coverage: CoverageMonthView[];
+  coverageCountLabel: string | null;
   showCoverageAsPaid: boolean;
   /** When awaiting payment: show explicit empty months. */
   monthsEmptyLabel: string | null;
@@ -174,7 +180,8 @@ export function buildStudentPlanSituationView(
   if (isVeteranAwaitingPlan) {
     planLabel = "Aguardando definição";
   } else if (kind !== "outro") {
-    planLabel = billingPeriodTitle(kind);
+    const modality = billingPeriodTitle(kind);
+    planLabel = isVeteran ? `Veterano ${modality}` : modality;
   } else if (input.plan?.name) {
     planLabel = String(input.plan.name);
   } else if (!input.approved_at) {
@@ -189,15 +196,31 @@ export function buildStudentPlanSituationView(
     : formatTrainingDaysLabel(days);
 
   let amountLabel: string | null = null;
+  let totalAmountLabel: string | null = null;
+  let amountSuffix: string | null = null;
   if (!isVeteranAwaitingPlan && !isAwaitingPaymentConfirm && !input.hideFinancialDetails && input.plan) {
-    const amount =
+    const monthly = Number(input.plan.monthly_price ?? NaN);
+    const isPrepaid = input.plan.billing_mode === "machine_prepaid";
+    const packageTotal =
       input.contract?.total_amount != null
         ? Number(input.contract.total_amount)
-        : input.plan.billing_mode === "machine_prepaid"
-          ? Number(input.plan.package_total_amount ?? input.plan.monthly_price ?? NaN)
-          : Number(input.plan.monthly_price ?? NaN);
-    if (Number.isFinite(amount) && amount > 0) {
-      amountLabel = amount.toFixed(2);
+        : isPrepaid
+          ? Number(input.plan.package_total_amount ?? NaN)
+          : NaN;
+
+    if (Number.isFinite(monthly) && monthly > 0) {
+      amountLabel = monthly.toFixed(2);
+      amountSuffix = "/mês";
+    }
+    if (isPrepaid && Number.isFinite(packageTotal) && packageTotal > 0) {
+      totalAmountLabel = packageTotal.toFixed(2);
+      if (!amountLabel) {
+        amountLabel = packageTotal.toFixed(2);
+        amountSuffix = null;
+      }
+    } else if (!isPrepaid && Number.isFinite(monthly) && monthly > 0) {
+      amountLabel = monthly.toFixed(2);
+      amountSuffix = "/mês";
     }
   }
 
@@ -260,6 +283,17 @@ export function buildStudentPlanSituationView(
       ? `${input.contract.starts_on} até ${input.contract.ends_on}`
       : null;
 
+  const coverageCount =
+    showCoverageAsPaid && coverage.length > 0
+      ? coverage.length
+      : paid
+        ? expectedCoverageCount(
+            input.contract?.duration_months ?? input.plan?.duration_months,
+          )
+        : 0;
+  const coverageCountLabel =
+    showCoverageAsPaid && coverageCount > 0 ? `${coverageCount} meses` : null;
+
   return {
     title: "SITUAÇÃO DO PLANO",
     registrationLabel,
@@ -269,11 +303,14 @@ export function buildStudentPlanSituationView(
     frequencyLabel,
     frequencyCaption,
     amountLabel,
+    totalAmountLabel,
+    amountSuffix,
     paymentMethodLabel,
     paymentLabel,
     financialLabel,
     periodLabel,
     coverage,
+    coverageCountLabel,
     showCoverageAsPaid,
     monthsEmptyLabel,
     isVeteranAwaitingPlan,

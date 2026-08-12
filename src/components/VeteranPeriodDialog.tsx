@@ -4,15 +4,18 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
-import { formatPlanOptionLabel, type PlanOption } from "@/lib/plans";
+import type { PlanOption } from "@/lib/plans";
 import {
   BILLING_PERIOD_LABELS,
   VETERAN_AWAITING_PRICE_MESSAGE,
+  formatVeteranPrepaidPriceSummary,
+  listConfiguredVeteranPeriods,
   matchVeteranPlan,
   type BillingPeriodChoice,
   type VeteranTrainingDays,
   validateVeteranTrainingDays,
 } from "@/lib/registration-flows";
+import { formatCurrency } from "@/lib/api";
 import { PREPAID_PAYMENT_METHOD_LABELS, type PrepaidPaymentMethod } from "@/lib/prepaid-contracts";
 import { useToast } from "@/hooks/use-toast";
 
@@ -93,7 +96,19 @@ export function VeteranPeriodDialog({ student, onDone }: Props) {
     });
   }, [period, daysOk, plans, trainingDays]);
 
+  const configuredPeriods = useMemo(
+    () => listConfiguredVeteranPeriods({ plans, trainingDays }),
+    [plans, trainingDays],
+  );
+
+  useEffect(() => {
+    if (period && configuredPeriods.length > 0 && !configuredPeriods.includes(period)) {
+      setPeriod("");
+    }
+  }, [period, configuredPeriods]);
+
   const awaitingPrice = !!period && daysOk && !matchedPlan && !loadingPlans;
+  const noConfiguredPlans = !loadingPlans && daysOk && configuredPeriods.length === 0;
   const isPrepaidPeriod =
     period === "trimestral" || period === "semestral" || period === "anual";
 
@@ -155,12 +170,24 @@ export function VeteranPeriodDialog({ student, onDone }: Props) {
 
       <div className="space-y-2">
         <Label>Plano</Label>
-        <Select value={period || undefined} onValueChange={(v) => setPeriod(v as BillingPeriodChoice)}>
+        <Select
+          value={period || undefined}
+          onValueChange={(v) => setPeriod(v as BillingPeriodChoice)}
+          disabled={loadingPlans || configuredPeriods.length === 0}
+        >
           <SelectTrigger>
-            <SelectValue placeholder="Mensal / Trimestral / Semestral / Anual" />
+            <SelectValue
+              placeholder={
+                loadingPlans
+                  ? "Carregando..."
+                  : configuredPeriods.length === 0
+                    ? "Nenhum plano oficial disponível"
+                    : "Mensal / Trimestral / Semestral / Anual"
+              }
+            />
           </SelectTrigger>
           <SelectContent>
-            {(Object.keys(BILLING_PERIOD_LABELS) as BillingPeriodChoice[]).map((key) => (
+            {configuredPeriods.map((key) => (
               <SelectItem key={key} value={key}>
                 {BILLING_PERIOD_LABELS[key]}
               </SelectItem>
@@ -170,8 +197,27 @@ export function VeteranPeriodDialog({ student, onDone }: Props) {
       </div>
 
       {matchedPlan ? (
-        <p className="text-sm rounded-md border border-border bg-secondary/40 p-2">
-          {formatPlanOptionLabel(matchedPlan)}
+        <div className="text-sm rounded-md border border-border bg-secondary/40 p-2 space-y-1">
+          <p className="font-medium">{matchedPlan.name}</p>
+          {isPrepaidPeriod ? (
+            <p className="text-muted-foreground">
+              {formatVeteranPrepaidPriceSummary(matchedPlan)}
+            </p>
+          ) : (
+            <p className="text-muted-foreground">
+              {formatCurrency(Number(matchedPlan.monthly_price))} / mês · Boleto (Asaas)
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Frequência do aluno permanece: {student.requested_training_days ?? "—"} dias/semana
+            {isPrepaidPeriod ? " (não altera o preço da fidelidade)" : ""}
+          </p>
+        </div>
+      ) : null}
+
+      {noConfiguredPlans ? (
+        <p className="text-sm text-amber-700 dark:text-amber-400 rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
+          {VETERAN_AWAITING_PRICE_MESSAGE}
         </p>
       ) : null}
 

@@ -42,31 +42,42 @@ const plans: PlanOption[] = [
     duration_months: 3,
   },
   {
-    id: "vs3",
-    name: "Semestral Veterano 3",
-    monthly_price: 150,
-    package_total_amount: 900,
-    training_days_per_week: 3,
+    id: "vs",
+    name: "Veterano Semestral",
+    monthly_price: 130,
+    package_total_amount: 780,
+    training_days_per_week: null,
     audience: "veterano",
     billing_mode: "machine_prepaid",
     plan_kind: "semestral",
     duration_months: 6,
   },
   {
-    id: "va3",
-    name: "Anual Veterano 3",
-    monthly_price: 150,
-    package_total_amount: 1800,
-    training_days_per_week: 3,
+    id: "va",
+    name: "Veterano Anual",
+    monthly_price: 110,
+    package_total_amount: 1320,
+    training_days_per_week: null,
     audience: "veterano",
     billing_mode: "machine_prepaid",
     plan_kind: "anual",
     duration_months: 12,
   },
   {
+    id: "vt",
+    name: "Veterano Trimestral",
+    monthly_price: 160,
+    package_total_amount: 480,
+    training_days_per_week: null,
+    audience: "veterano",
+    billing_mode: "machine_prepaid",
+    plan_kind: "trimestral",
+    duration_months: 3,
+  },
+  {
     id: "vm3",
     name: "Mensal Veterano 3",
-    monthly_price: 190,
+    monthly_price: 150,
     training_days_per_week: 3,
     audience: "veterano",
     billing_mode: "asaas_monthly",
@@ -94,14 +105,15 @@ describe("registration payment rules", () => {
     expect(groups.trimestral.map((p) => p.id)).toEqual(["nt3"]);
   });
 
-  it("validates veteran day choices and never copies new_student mensal price", () => {
-    expect(validateVeteranTrainingDays(1)).toBe(true);
+  it("validates veteran day choices and matches prepaid by modality only", () => {
+    expect(validateVeteranTrainingDays(1)).toBe(false);
+    expect(validateVeteranTrainingDays(2)).toBe(true);
     expect(validateVeteranTrainingDays(3)).toBe(true);
     expect(validateVeteranTrainingDays(4)).toBe(false);
     expect(matchVeteranPlan({ plans, trainingDays: 3, period: "mensal" })?.id).toBe("vm3");
     expect(matchVeteranPlan({ plans, trainingDays: 3, period: "mensal" })?.id).not.toBe("p3");
-    expect(matchVeteranPlan({ plans, trainingDays: 3, period: "semestral" })?.id).toBe("vs3");
-    expect(matchVeteranPlan({ plans, trainingDays: 3, period: "anual" })?.id).toBe("va3");
-    expect(matchVeteranPlan({ plans, trainingDays: 3, period: "trimestral" })).toBeNull();
+    expect(matchVeteranPlan({ plans, trainingDays: 2, period: "semestral" })?.id).toBe("vs");
+    expect(matchVeteranPlan({ plans, trainingDays: 5, period: "anual" })?.id).toBe("va");
+    expect(matchVeteranPlan({ plans, trainingDays: 3, period: "trimestral" })?.id).toBe("vt");
   });
 });

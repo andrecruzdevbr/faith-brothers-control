@@ -69,7 +69,7 @@ const signupSchema = z
     confirmPassword: z.string().min(8).max(100),
     contractType: z.enum(["individual", "familiar"]),
     registrationAudience: z.enum(["new_student", "veterano"]).optional(),
-    trainingDays: z.enum(["1", "2", "3", "5"]).optional(),
+    trainingDays: z.enum(["2", "3", "5"]).optional(),
     familyMode: z.enum(["create", "join"]).optional(),
     familyName: z.string().trim().max(120).optional().or(z.literal("")),
     familyInviteCode: z.string().trim().max(20).optional().or(z.literal("")),

@@ -1,7 +1,6 @@
 /** Registration audience + payment channel rules (testable, no I/O). */
 
 import type { PlanOption } from "@/lib/plans";
-import { TRAINING_DAY_OPTIONS, type TrainingDayOption } from "@/lib/plans";
 import {
   isMachineBillingMode,
   type PrepaidPaymentMethod,
@@ -11,8 +10,76 @@ export type RegistrationAudience = "new_student" | "veterano";
 
 export type NewStudentPaymentChannel = "boleto" | PrepaidPaymentMethod;
 
-export const VETERAN_DAY_OPTIONS = TRAINING_DAY_OPTIONS;
-export type VeteranTrainingDays = TrainingDayOption;
+/** Official veteran signup frequencies — no 1-day (price not provided). */
+export const VETERAN_DAY_OPTIONS = [2, 3, 5] as const;
+export type VeteranTrainingDays = (typeof VETERAN_DAY_OPTIONS)[number];
+
+/** Official veteran monthly catalog (boleto; priced by frequency). */
+export const OFFICIAL_VETERAN_MONTHLY_CATALOG = [
+  { plan_kind: "mensal" as const, training_days_per_week: 2, monthly_price: 130, billing_mode: "asaas_monthly" as const },
+  { plan_kind: "mensal" as const, training_days_per_week: 3, monthly_price: 150, billing_mode: "asaas_monthly" as const },
+  { plan_kind: "mensal" as const, training_days_per_week: 5, monthly_price: 180, billing_mode: "asaas_monthly" as const },
+];
+
+/**
+ * Official veteran prepaid fidelity catalog (cartão/maquininha).
+ * Price is by modality only — frequency is independent (student.requested_training_days).
+ * package_total = monthly_price × duration_months.
+ */
+export const OFFICIAL_VETERAN_PREPAID_CATALOG = [
+  {
+    plan_kind: "trimestral" as const,
+    monthly_price: 160,
+    duration_months: 3,
+    package_total_amount: 480,
+    billing_mode: "machine_prepaid" as const,
+  },
+  {
+    plan_kind: "semestral" as const,
+    monthly_price: 130,
+    duration_months: 6,
+    package_total_amount: 780,
+    billing_mode: "machine_prepaid" as const,
+  },
+  {
+    plan_kind: "anual" as const,
+    monthly_price: 110,
+    duration_months: 12,
+    package_total_amount: 1320,
+    billing_mode: "machine_prepaid" as const,
+  },
+] as const;
+
+export function veteranPrepaidExpectedTotal(monthlyPrice: number, durationMonths: number): number {
+  return Math.round(Number(monthlyPrice) * Number(durationMonths) * 100) / 100;
+}
+
+export function isVeteranPrepaidTotalValid(plan: {
+  monthly_price?: number | null;
+  reference_monthly_price?: number | null;
+  package_total_amount?: number | null;
+  duration_months?: number | null;
+}): boolean {
+  const months = Number(plan.duration_months ?? 0);
+  const monthly = Number(plan.reference_monthly_price ?? plan.monthly_price ?? 0);
+  const total = Number(plan.package_total_amount ?? 0);
+  if (!(months > 0) || !(monthly > 0) || !(total > 0)) return false;
+  return total === veteranPrepaidExpectedTotal(monthly, months);
+}
+
+/** ADM / student summary: monthly + contractual total for prepaid. */
+export function formatVeteranPrepaidPriceSummary(plan: {
+  monthly_price?: number | null;
+  package_total_amount?: number | null;
+  duration_months?: number | null;
+}): string {
+  const monthly = Number(plan.monthly_price ?? 0);
+  const months = Number(plan.duration_months ?? 0);
+  const total = Number(plan.package_total_amount ?? veteranPrepaidExpectedTotal(monthly, months));
+  const fmt = (n: number) =>
+    n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return `${fmt(monthly)}/mês · ${months} meses · Total ${fmt(total)}`;
+}
 
 export type BillingPeriodChoice = "mensal" | "trimestral" | "semestral" | "anual";
 
@@ -193,7 +260,24 @@ export function paymentMethodsForNewStudentPlan(plan: PlanOption | null | undefi
 export function validateVeteranTrainingDays(
   days: number | null | undefined,
 ): days is VeteranTrainingDays {
-  return days === 1 || days === 2 || days === 3 || days === 5;
+  return days === 2 || days === 3 || days === 5;
+}
+
+/** Periods the ADM can pick for a veteran given catalog rows with valid prices. */
+export function listConfiguredVeteranPeriods(params: {
+  plans: PlanOption[];
+  trainingDays: number | null | undefined;
+}): BillingPeriodChoice[] {
+  if (!validateVeteranTrainingDays(params.trainingDays)) return [];
+  return BILLING_PERIOD_ORDER.filter((period) =>
+    Boolean(
+      matchVeteranPlan({
+        plans: params.plans,
+        trainingDays: params.trainingDays,
+        period,
+      }),
+    ),
+  );
 }
 
 export function resolvePaymentReviewStatus(input: {
@@ -233,6 +317,7 @@ export function isPlanPriceConfigured(plan: PlanOption | null | undefined): bool
 
 /**
  * Match ONLY audience=veterano plans. Never copy new_student prices.
+ * Mensal: by frequency (2/3/5). Prepaid T/S/A: by modality only (days ignored).
  */
 export function matchVeteranPlan(params: {
   plans: PlanOption[];
@@ -260,22 +345,22 @@ export function matchVeteranPlan(params: {
     return isPlanPriceConfigured(hit) ? hit : null;
   }
 
+  const prepaidCandidates = veteranPlans.filter(
+    (p) =>
+      isMachineBillingMode(p.billing_mode) &&
+      Number(p.duration_months ?? 0) === duration &&
+      ((p.plan_kind ?? "") === period || Number(p.duration_months ?? 0) === duration) &&
+      isPlanPriceConfigured(p) &&
+      isVeteranPrepaidTotalValid(p),
+  );
+
+  // Prefer period-only SKUs (null days) over legacy day-matrix seeds.
   const hit =
-    veteranPlans.find(
-      (p) =>
-        isMachineBillingMode(p.billing_mode) &&
-        Number(p.training_days_per_week) === trainingDays &&
-        Number(p.duration_months ?? 0) === duration,
-    ) ??
-    veteranPlans.find(
-      (p) =>
-        isMachineBillingMode(p.billing_mode) &&
-        Number(p.training_days_per_week) === trainingDays &&
-        (p.plan_kind ?? "") === period,
-    ) ??
+    prepaidCandidates.find((p) => p.training_days_per_week == null) ??
+    prepaidCandidates[0] ??
     null;
 
-  return isPlanPriceConfigured(hit) ? hit : null;
+  return hit;
 }
 
 export function buildRegistrationReceivedIdempotencyKey(studentId: string): string {

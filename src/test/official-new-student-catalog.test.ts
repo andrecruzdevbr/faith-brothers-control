@@ -82,8 +82,8 @@ describe("official new_student catalog matrix", () => {
     expect(requiresAdminPaymentConfirmation("cartao_credito")).toBe(true);
   });
 
-  it("veteran frequency accepts 1/2/3/5 and never matches new_student prices", () => {
-    expect(validateVeteranTrainingDays(1)).toBe(true);
+  it("veteran frequency accepts only 2/3/5 and never matches new_student prices", () => {
+    expect(validateVeteranTrainingDays(1)).toBe(false);
     expect(validateVeteranTrainingDays(2)).toBe(true);
     expect(validateVeteranTrainingDays(4)).toBe(false);
     const plans = catalogAsPlans();

@@ -247,13 +247,28 @@ export function StudentContractOverview({ studentId }: Props) {
           {amount && !hideFinancialDetails && !view.isAwaitingPaymentConfirm ? (
             <p>
               <span className="text-muted-foreground">Valor:</span>{" "}
-              <span className="font-medium">{amount}</span>
+              <span className="font-medium">
+                {amount}
+                {view.amountSuffix ?? ""}
+              </span>
+            </p>
+          ) : null}
+          {view.totalAmountLabel && !hideFinancialDetails && !view.isAwaitingPaymentConfirm ? (
+            <p>
+              <span className="text-muted-foreground">Total contratado:</span>{" "}
+              <span className="font-medium">{formatAmountLabel(view.totalAmountLabel)}</span>
             </p>
           ) : null}
           {view.periodLabel ? (
             <p className="sm:col-span-2">
               <span className="text-muted-foreground">Período:</span>{" "}
               <span className="font-medium">{formatPeriodLabel(view.periodLabel)}</span>
+            </p>
+          ) : null}
+          {view.coverageCountLabel ? (
+            <p>
+              <span className="text-muted-foreground">Cobertura:</span>{" "}
+              <span className="font-medium">{view.coverageCountLabel}</span>
             </p>
           ) : null}
         </div>

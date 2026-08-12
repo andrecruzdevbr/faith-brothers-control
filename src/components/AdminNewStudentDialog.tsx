@@ -58,7 +58,7 @@ const adminSignupSchema = z
     billingTaxId: z.string().trim().min(11, "Informe CPF ou CNPJ"),
     belt: z.string().optional(),
     registrationAudience: z.enum(["new_student", "veterano"]).optional(),
-    trainingDays: z.enum(["1", "2", "3", "5"]).optional(),
+    trainingDays: z.enum(["2", "3", "5"]).optional(),
     paymentMethod: z
       .enum(["boleto", "cartao_credito", "cartao_debito", "pix", "dinheiro"])
       .optional(),
