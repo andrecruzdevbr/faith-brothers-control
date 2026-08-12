@@ -64,10 +64,16 @@ WhatsApp real: **não enviado**.
 
 ## Frontend
 
-Push `main` → Vercel:
+Push `main` → Vercel (`b7b1ce4`):
 
 - Modelo 1/2/3 → frequência 1/2/3/5 → resumo + preço do banco
 - “Alterar plano”
+
+| Check | Resultado |
+|-------|-----------|
+| `main` = `origin/main` | SIM |
+| `/cadastro` HTTP 200 | SIM |
+| Bundle com prompts modelo/frequência + Alterar plano | SIM |
 
 ## Testes finais
 
