@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { StudentPlanEditor } from "@/components/StudentPlanEditor";
 import { StudentContractOverview } from "@/components/StudentContractOverview";
+import { QueryLoadError } from "@/components/QueryLoadError";
 import { useMyBillings } from "@/hooks/useQueries";
 import { formatCurrency, formatDateBR } from "@/lib/api";
 import { deriveOverallStatus } from "@/lib/finance-indicators";
@@ -44,11 +45,11 @@ const billingStatusClass: Record<string, string> = {
 
 const MeuFinanceiro = () => {
   const queryClient = useQueryClient();
-  const { data, isLoading } = useMyBillings();
+  const { data, isLoading, isError, error, refetch } = useMyBillings();
   const [requestOpen, setRequestOpen] = useState(false);
 
-  const student = data && !Array.isArray(data) ? data.student : null;
-  const billings = data && !Array.isArray(data) ? data.billings : [];
+  const student = data?.student ?? null;
+  const billings = data?.billings ?? [];
 
   const { data: academyId } = useQuery({
     queryKey: ["my-student-academy", student?.id],
@@ -87,6 +88,18 @@ const MeuFinanceiro = () => {
         <Skeleton className="h-48 rounded-xl" />
         <Skeleton className="h-64 rounded-xl" />
       </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <QueryLoadError
+        title="MEU FINANCEIRO"
+        message={error instanceof Error ? error.message : "Erro ao carregar seus dados financeiros."}
+        onRetry={() => {
+          void refetch();
+        }}
+      />
     );
   }
 

@@ -7,70 +7,40 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/api";
-
-type CatalogPlan = {
-  id: string;
-  name: string;
-  audience: string;
-  plan_kind: string;
-  training_days_per_week: number | null;
-  monthly_price: number;
-  package_total_amount: number | null;
-  duration_months: number | null;
-  billing_mode: string | null;
-  active: boolean;
-};
-
-type Draft = {
-  name: string;
-  audience: "new_student" | "veterano";
-  plan_kind: "mensal" | "trimestral" | "semestral" | "anual";
-  training_days_per_week: "1" | "2" | "3" | "5";
-  price: string;
-  active: "true" | "false";
-};
-
-const EMPTY_DRAFT: Draft = {
-  name: "",
-  audience: "veterano",
-  plan_kind: "mensal",
-  training_days_per_week: "3",
-  price: "",
-  active: "false",
-};
-
-function billingDefaults(kind: Draft["plan_kind"]): {
-  billing_mode: string;
-  duration_months: number;
-  allows_installments: boolean;
-} {
-  if (kind === "mensal") {
-    return { billing_mode: "asaas_monthly", duration_months: 1, allows_installments: false };
-  }
-  const duration = kind === "trimestral" ? 3 : kind === "semestral" ? 6 : 12;
-  return { billing_mode: "machine_prepaid", duration_months: duration, allows_installments: true };
-}
+import {
+  EMPTY_CATALOG_DRAFT,
+  audienceLabel,
+  buildCatalogPlanWrite,
+  catalogPlanDisplayAmount,
+  catalogPlanEditBlockReason,
+  draftFromCatalogPlan,
+  type CatalogEditorDraft,
+  type CatalogPlanRecord,
+} from "@/lib/plan-catalog-editor";
 
 type Props = { academyId: string };
 
 /**
  * ADM catalog editor: when client provides veteran/period prices,
  * configure here without code or migration changes.
+ * Family and drop-in plans are blocked — never coerced to new_student/Asaas monthly.
  */
 export function PlanCatalogManager({ academyId }: Props) {
   const { toast } = useToast();
-  const [plans, setPlans] = useState<CatalogPlan[]>([]);
+  const [plans, setPlans] = useState<CatalogPlanRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<CatalogEditorDraft>(EMPTY_CATALOG_DRAFT);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  const editingPlan = editingId ? plans.find((plan) => plan.id === editingId) ?? null : null;
 
   const reload = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("plans")
       .select(
-        "id, name, audience, plan_kind, training_days_per_week, monthly_price, package_total_amount, duration_months, billing_mode, active",
+        "id, name, audience, plan_kind, training_days_per_week, monthly_price, package_total_amount, duration_months, billing_mode, allows_installments, max_installments, reference_monthly_price, active",
       )
       .eq("academy_id", academyId)
       .order("audience")
@@ -86,6 +56,8 @@ export function PlanCatalogManager({ academyId }: Props) {
           monthly_price: Number(p.monthly_price),
           package_total_amount:
             p.package_total_amount == null ? null : Number(p.package_total_amount),
+          reference_monthly_price:
+            p.reference_monthly_price == null ? null : Number(p.reference_monthly_price),
         })),
       );
     }
@@ -97,85 +69,49 @@ export function PlanCatalogManager({ academyId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [academyId]);
 
-  const startEdit = (plan: CatalogPlan) => {
+  const startEdit = (plan: CatalogPlanRecord) => {
+    const next = draftFromCatalogPlan(plan);
+    if ("blocked" in next) {
+      toast({ title: "Edição indisponível", description: next.blocked, variant: "destructive" });
+      return;
+    }
     setEditingId(plan.id);
-    const amount =
-      plan.billing_mode === "machine_prepaid" || plan.billing_mode === "machine_dropin"
-        ? Number(plan.package_total_amount ?? plan.monthly_price)
-        : Number(plan.monthly_price);
-    setDraft({
-      name: plan.name,
-      audience: plan.audience === "veterano" ? "veterano" : "new_student",
-      plan_kind:
-        plan.plan_kind === "trimestral" ||
-        plan.plan_kind === "semestral" ||
-        plan.plan_kind === "anual" ||
-        plan.plan_kind === "mensal"
-          ? plan.plan_kind
-          : "mensal",
-      training_days_per_week:
-        plan.training_days_per_week === 1 ||
-        plan.training_days_per_week === 2 ||
-        plan.training_days_per_week === 5
-          ? (String(plan.training_days_per_week) as "1" | "2" | "5")
-          : "3",
-      price: String(amount),
-      active: plan.active ? "true" : "false",
-    });
+    setDraft(next);
   };
 
   const save = async () => {
-    const price = Number(String(draft.price).replace(",", "."));
-    if (!draft.name.trim()) {
-      toast({ title: "Informe o nome do plano", variant: "destructive" });
-      return;
-    }
-    if (!Number.isFinite(price) || price <= 0) {
+    const write = buildCatalogPlanWrite({
+      mode: editingId ? "update" : "create",
+      academyId,
+      draft,
+      original: editingPlan,
+    });
+    if (!write.ok) {
       toast({
-        title: "Informe um valor válido",
-        description: "Não use R$ 0. Aguarde o valor do cliente se ainda não houver.",
+        title: write.blocked === "Informe o nome do plano" || write.blocked === "Informe um valor válido"
+          ? write.blocked
+          : "Não foi possível salvar",
+        description:
+          write.blocked === "Informe um valor válido"
+            ? "Não use R$ 0. Aguarde o valor do cliente se ainda não houver."
+            : write.blocked,
         variant: "destructive",
       });
       return;
     }
 
-    const defaults = billingDefaults(draft.plan_kind);
-    const days = Number(draft.training_days_per_week);
-    const payload = {
-      academy_id: academyId,
-      name: draft.name.trim(),
-      audience: draft.audience,
-      plan_kind: draft.plan_kind,
-      training_days_per_week: days,
-      duration_months: defaults.duration_months,
-      billing_mode: defaults.billing_mode,
-      allows_installments: defaults.allows_installments,
-      max_installments: defaults.allows_installments ? 12 : 1,
-      active: draft.active === "true",
-      monthly_price:
-        defaults.billing_mode === "asaas_monthly"
-          ? price
-          : Math.round((price / defaults.duration_months) * 100) / 100,
-      reference_monthly_price:
-        defaults.billing_mode === "asaas_monthly"
-          ? price
-          : Math.round((price / defaults.duration_months) * 100) / 100,
-      package_total_amount:
-        defaults.billing_mode === "asaas_monthly" ? null : price,
-    };
-
     setSaving(true);
     try {
       if (editingId) {
-        const { error } = await supabase.from("plans").update(payload).eq("id", editingId);
+        const { error } = await supabase.from("plans").update(write.payload).eq("id", editingId);
         if (error) throw error;
         toast({ title: "Plano atualizado" });
       } else {
-        const { error } = await supabase.from("plans").insert(payload);
+        const { error } = await supabase.from("plans").insert(write.payload);
         if (error) throw error;
         toast({ title: "Plano cadastrado" });
       }
-      setDraft(EMPTY_DRAFT);
+      setDraft(EMPTY_CATALOG_DRAFT);
       setEditingId(null);
       await reload();
     } catch (e) {
@@ -196,7 +132,7 @@ export function PlanCatalogManager({ academyId }: Props) {
         <p className="text-xs text-muted-foreground mt-1">
           Cadastre/ative planos New Student e Veterano com valores oficiais. Sem inventar preço.
           Veterano mensal/trimestral/semestral/anual ficam prontos para ativar quando o cliente
-          informar o valor.
+          informar o valor. Planos familiares oficiais não são editáveis aqui.
         </p>
       </div>
 
@@ -206,8 +142,9 @@ export function PlanCatalogManager({ academyId }: Props) {
             <Label>Público</Label>
             <Select
               value={draft.audience}
+              disabled={!!editingId}
               onValueChange={(v) =>
-                setDraft((d) => ({ ...d, audience: v as Draft["audience"] }))
+                setDraft((d) => ({ ...d, audience: v as CatalogEditorDraft["audience"] }))
               }
             >
               <SelectTrigger>
@@ -223,8 +160,9 @@ export function PlanCatalogManager({ academyId }: Props) {
             <Label>Plano</Label>
             <Select
               value={draft.plan_kind}
+              disabled={!!editingId}
               onValueChange={(v) =>
-                setDraft((d) => ({ ...d, plan_kind: v as Draft["plan_kind"] }))
+                setDraft((d) => ({ ...d, plan_kind: v as CatalogEditorDraft["plan_kind"] }))
               }
             >
               <SelectTrigger>
@@ -242,10 +180,11 @@ export function PlanCatalogManager({ academyId }: Props) {
             <Label>Frequência</Label>
             <Select
               value={draft.training_days_per_week}
+              disabled={!!editingId}
               onValueChange={(v) =>
                 setDraft((d) => ({
                   ...d,
-                  training_days_per_week: v as Draft["training_days_per_week"],
+                  training_days_per_week: v as CatalogEditorDraft["training_days_per_week"],
                 }))
               }
             >
@@ -304,7 +243,7 @@ export function PlanCatalogManager({ academyId }: Props) {
               variant="outline"
               onClick={() => {
                 setEditingId(null);
-                setDraft(EMPTY_DRAFT);
+                setDraft(EMPTY_CATALOG_DRAFT);
               }}
             >
               Cancelar edição
@@ -343,13 +282,11 @@ export function PlanCatalogManager({ academyId }: Props) {
             </thead>
             <tbody>
               {plans.map((p) => {
-                const amount =
-                  p.billing_mode === "machine_prepaid" || p.billing_mode === "machine_dropin"
-                    ? Number(p.package_total_amount ?? p.monthly_price)
-                    : Number(p.monthly_price);
+                const amount = catalogPlanDisplayAmount(p);
+                const blockReason = catalogPlanEditBlockReason(p);
                 return (
                   <tr key={p.id} className="border-b border-border/50">
-                    <td className="px-4 py-3 text-sm">{p.audience}</td>
+                    <td className="px-4 py-3 text-sm">{audienceLabel(p.audience)}</td>
                     <td className="px-4 py-3 text-sm">
                       {p.name}
                       <span className="block text-xs text-muted-foreground">
@@ -359,9 +296,20 @@ export function PlanCatalogManager({ academyId }: Props) {
                     <td className="px-4 py-3 text-sm">{formatCurrency(amount)}</td>
                     <td className="px-4 py-3 text-sm">{p.active ? "Sim" : "Não"}</td>
                     <td className="px-4 py-3 text-sm">
-                      <Button size="sm" variant="outline" onClick={() => startEdit(p)}>
-                        Editar
-                      </Button>
+                      {blockReason ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => startEdit(p)}
+                          title={blockReason}
+                        >
+                          Indisponível
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => startEdit(p)}>
+                          Editar
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 );

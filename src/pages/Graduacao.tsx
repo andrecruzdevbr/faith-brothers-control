@@ -1,15 +1,22 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Award } from "lucide-react";
+import { QueryLoadError } from "@/components/QueryLoadError";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { BELTS } from "@/lib/constants";
+import { compareStudentsByOfficialBelt } from "@/lib/belt-rank";
+import { fetchAllRows } from "@/lib/paged-query";
 
-const BELT_ORDER = ["Preta", "Marrom", "Roxa", "Azul", "Branca"];
 const BELT_COLORS: Record<string, string> = {
   Preta: "bg-foreground border border-primary",
   Marrom: "bg-amber-800",
   Roxa: "bg-purple-600",
   Azul: "bg-blue-600",
+  Verde: "bg-green-600",
+  Laranja: "bg-orange-500",
+  Amarela: "bg-yellow-400",
+  Cinza: "bg-gray-400",
   Branca: "bg-foreground",
 };
 
@@ -25,38 +32,41 @@ const Graduacao = () => {
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [beltCounts, setBeltCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    if (!user?.academyId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchAllRows<StudentRow>((from, to) =>
+        supabase
+          .from("students")
+          .select("id, full_name, belt, degrees")
+          .eq("academy_id", user.academyId)
+          .eq("status", "ativo")
+          .range(from, to),
+      );
+      const counts: Record<string, number> = {};
+      for (const s of data) {
+        const b = s.belt || "Branca";
+        counts[b] = (counts[b] || 0) + 1;
+      }
+      setBeltCounts(counts);
+      setStudents([...data].sort(compareStudentsByOfficialBelt));
+    } catch (e) {
+      setStudents([]);
+      setBeltCounts({});
+      setError(e instanceof Error ? e.message : "Erro ao carregar a graduação.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const load = async () => {
-      if (!user?.academyId) return;
-      const { data } = await supabase
-        .from("students")
-        .select("id, full_name, belt, degrees")
-        .eq("academy_id", user.academyId)
-        .eq("status", "ativo");
-
-      if (data) {
-        // Count per belt
-        const counts: Record<string, number> = {};
-        for (const s of data) {
-          const b = s.belt || "Branca";
-          counts[b] = (counts[b] || 0) + 1;
-        }
-        setBeltCounts(counts);
-
-        // Sort by belt rank then degrees
-        const sorted = [...data].sort((a, b) => {
-          const aIdx = BELT_ORDER.indexOf(a.belt || "Branca");
-          const bIdx = BELT_ORDER.indexOf(b.belt || "Branca");
-          if (aIdx !== bIdx) return aIdx - bIdx;
-          return (b.degrees || 0) - (a.degrees || 0);
-        });
-        setStudents(sorted);
-      }
-      setLoading(false);
-    };
     void load();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.academyId]);
 
   if (loading) {
     return (
@@ -66,12 +76,24 @@ const Graduacao = () => {
     );
   }
 
+  if (error) {
+    return (
+      <QueryLoadError
+        title="GRADUAÇÃO"
+        message={error}
+        onRetry={() => {
+          void load();
+        }}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl md:text-3xl font-display font-bold tracking-wider">GRADUAÇÃO</h1>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        {BELT_ORDER.map((belt, i) => (
+        {BELTS.map((belt, i) => (
           <motion.div
             key={belt}
             initial={{ opacity: 0, y: 10 }}

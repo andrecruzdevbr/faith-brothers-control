@@ -63,6 +63,28 @@ export function formatStartTime(value: string | null | undefined): string {
   return String(value).slice(0, 5);
 }
 
+const TECHNICAL_CLASS_NOTES = new Set(["official_v1"]);
+
+/** Hide internal catalog markers from the class board while keeping them in the database. */
+export function displayClassNotes(notes: string | null | undefined): string {
+  const value = (notes ?? "").trim();
+  if (!value) return "";
+  if (TECHNICAL_CLASS_NOTES.has(value)) return "";
+  return value;
+}
+
+/** Keep technical markers when the operator did not type a replacement note. */
+export function persistClassNotes(
+  original: string | null | undefined,
+  edited: string | null | undefined,
+): string | null {
+  const next = (edited ?? "").trim();
+  if (next) return next;
+  const raw = (original ?? "").trim();
+  if (TECHNICAL_CLASS_NOTES.has(raw)) return raw;
+  return null;
+}
+
 export function formatClassTitle(row: Pick<ClassScheduleRow, "name" | "audience" | "level">): string {
   const name = (row.name ?? "").trim();
   if (name) return name;

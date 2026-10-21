@@ -8,32 +8,22 @@ import {
   addDaysIso,
   countDelinquentStudents,
   isDueSoon,
+  RECEIVABLE_BILLING_STATUSES,
   sumReceipts,
 } from "@/lib/finance-indicators";
-
-async function fetchAllRows<T>(
-  load: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
-): Promise<T[]> {
-  const pageSize = 1000;
-  const rows: T[] = [];
-  for (let page = 0; page < 20; page++) {
-    const from = page * pageSize;
-    const { data, error } = await load(from, from + pageSize - 1);
-    if (error) throw new Error(error.message);
-    const batch = data ?? [];
-    rows.push(...batch);
-    if (batch.length < pageSize) break;
-  }
-  return rows;
-}
+import { loadMyBillings } from "@/lib/my-billings";
+import { fetchAllRows } from "@/lib/paged-query";
 
 export function useAcademyId() {
   return useQuery({
     queryKey: ["academy-id"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: sessionData, error: sessionError } = await supabase.auth.getUser();
+      if (sessionError) throw new Error(sessionError.message);
+      const user = sessionData.user;
       if (!user) return null;
-      const { data } = await supabase.from("profiles").select("academy_id").eq("user_id", user.id).single();
+      const { data, error } = await supabase.from("profiles").select("academy_id").eq("user_id", user.id).maybeSingle();
+      if (error) throw new Error(error.message);
       return data?.academy_id ?? null;
     },
     staleTime: 5 * 60 * 1000,
@@ -117,6 +107,7 @@ export function useReportBillings() {
             .from("billings")
             .select("student_id, status, amount, reference_month")
             .eq("academy_id", academyId!)
+            .gte("reference_month", sinceIso)
             .order("reference_month", { ascending: false })
             .range(from, to),
         ),
@@ -147,7 +138,7 @@ export function useReportBillings() {
         );
         contractPayments.push(...batch);
       }
-      return { billings, coveredMonths, contractPayments, total: billings.length };
+      return { billings, coveredMonths, contractPayments, total: billings.length, sinceIso };
     },
   });
 }
@@ -155,29 +146,33 @@ export function useReportBillings() {
 export function useMyBillings() {
   return useQuery({
     queryKey: ["my-billings"],
-    queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
-
-      const { data: student } = await supabase
-        .from("students")
-        .select(
-          "id, plan_id, status, approved_at, payment_review_status, registration_audience, requested_training_days, requested_payment_method, plans(id, name, monthly_price, package_total_amount, duration_months, billing_mode, plan_kind, training_days_per_week, audience)",
-        )
-        .eq("profile_user_id", user.id)
-        .maybeSingle();
-      if (!student) return [];
-
-      const { data, error } = await supabase
-        .from("billings")
-        .select("*")
-        .eq("student_id", student.id)
-        .order("reference_month", { ascending: false })
-        .limit(24);
-
-      if (error) throw error;
-      return { student, billings: data ?? [] };
-    },
+    queryFn: async () =>
+      loadMyBillings({
+        getUser: async () => {
+          const { data, error } = await supabase.auth.getUser();
+          if (error) throw new Error(error.message);
+          return { user: data.user ? { id: data.user.id } : null };
+        },
+        loadStudent: async (userId) => {
+          const { data, error } = await supabase
+            .from("students")
+            .select(
+              "id, plan_id, status, approved_at, payment_review_status, registration_audience, requested_training_days, requested_payment_method, plans(id, name, monthly_price, package_total_amount, duration_months, billing_mode, plan_kind, training_days_per_week, audience)",
+            )
+            .eq("profile_user_id", userId)
+            .maybeSingle();
+          return { data: data as never, error };
+        },
+        loadBillings: async (studentId) => {
+          const { data, error } = await supabase
+            .from("billings")
+            .select("*")
+            .eq("student_id", studentId)
+            .order("reference_month", { ascending: false })
+            .limit(24);
+          return { data: data as never, error };
+        },
+      }),
   });
 }
 
@@ -279,6 +274,8 @@ export function useDashboardStats() {
         totalStudentsRes,
         activeStudentsRes,
         inactiveStudentsRes,
+        pendingStudentsRes,
+        rejectedStudentsRes,
         presentTodayRes,
         openBillings,
         monthBillings,
@@ -294,13 +291,15 @@ export function useDashboardStats() {
         supabase.from("students").select("id", { count: "exact", head: true }).eq("academy_id", academyId!),
         supabase.from("students").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).eq("status", "ativo"),
         supabase.from("students").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).eq("status", "inativo"),
+        supabase.from("students").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).eq("status", "pendente_aprovacao"),
+        supabase.from("students").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).eq("status", "rejeitado"),
         supabase.from("attendances").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).gte("checked_in_at", todayStart.toISOString()),
         fetchAllRows<{ student_id: string; status: string; due_date: string }>((from, to) =>
           supabase
             .from("billings")
             .select("student_id, status, due_date")
             .eq("academy_id", academyId!)
-            .in("status", ["pendente", "gerado", "enviado_whatsapp", "vencido"])
+            .in("status", [...RECEIVABLE_BILLING_STATUSES])
             .range(from, to),
         ),
         fetchAllRows<{ student_id: string; amount: number; reference_month: string }>((from, to) =>
@@ -354,6 +353,8 @@ export function useDashboardStats() {
         totalStudentsRes,
         activeStudentsRes,
         inactiveStudentsRes,
+        pendingStudentsRes,
+        rejectedStudentsRes,
         presentTodayRes,
         recentStudentsRes,
         activeFamilyGroupsRes,
@@ -432,6 +433,8 @@ export function useDashboardStats() {
         totalStudents: totalStudentsRes.count ?? 0,
         activeStudents: activeStudentsRes.count ?? 0,
         inactiveStudents: inactiveStudentsRes.count ?? 0,
+        pendingStudents: pendingStudentsRes.count ?? 0,
+        rejectedStudents: rejectedStudentsRes.count ?? 0,
         presentToday: presentTodayRes.count ?? 0,
         overdueCount: countDelinquentStudents(
           openBillings.map((row) => ({
@@ -460,31 +463,52 @@ export function useRanking() {
     enabled: !!academyId,
     queryFn: async () => {
       const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString();
-      const { data: students, error } = await supabase
-        .from("students")
-        .select("id, full_name, belt, degrees")
-        .eq("academy_id", academyId!)
-        .eq("status", "ativo");
-
-      if (error) throw error;
-
-      const { data: attendances, error: attendanceError } = await supabase
-        .from("attendances")
-        .select("student_id")
-        .eq("academy_id", academyId!)
-        .gte("checked_in_at", monthAgo);
-
-      if (attendanceError) throw new Error(attendanceError.message);
+      const [students, attendances] = await Promise.all([
+        fetchAllRows<{ id: string; full_name: string; belt: string | null; degrees: number }>((from, to) =>
+          supabase
+            .from("students")
+            .select("id, full_name, belt, degrees")
+            .eq("academy_id", academyId!)
+            .eq("status", "ativo")
+            .range(from, to),
+        ),
+        fetchAllRows<{ student_id: string }>((from, to) =>
+          supabase
+            .from("attendances")
+            .select("student_id")
+            .eq("academy_id", academyId!)
+            .gte("checked_in_at", monthAgo)
+            .range(from, to),
+        ),
+      ]);
 
       const counts = new Map<string, number>();
-      for (const a of attendances ?? []) {
+      for (const a of attendances) {
         counts.set(a.student_id, (counts.get(a.student_id) ?? 0) + 1);
       }
 
-      return (students ?? [])
+      return students
         .map((s) => ({ ...s, treinos: counts.get(s.id) ?? 0 }))
         .sort((a, b) => b.treinos - a.treinos)
         .slice(0, 20);
+    },
+  });
+}
+
+export function useBeltDistribution() {
+  const { data: academyId } = useAcademyId();
+  return useQuery({
+    queryKey: ["belt-distribution", academyId],
+    enabled: !!academyId,
+    queryFn: async () => {
+      return fetchAllRows<{ belt: string | null }>((from, to) =>
+        supabase
+          .from("students")
+          .select("belt")
+          .eq("academy_id", academyId!)
+          .eq("status", "ativo")
+          .range(from, to),
+      );
     },
   });
 }
@@ -513,11 +537,12 @@ export function useAcademySettings(options?: { basicOnly?: boolean }) {
         return { academy, billing: null };
       }
 
-      const [{ data: academy, error: academyError }, { data: billing }] = await Promise.all([
+      const [{ data: academy, error: academyError }, { data: billing, error: billingError }] = await Promise.all([
         supabase.from("academies").select("*").eq("id", academyId!).single(),
         supabase.from("academy_billing_settings").select("*").eq("academy_id", academyId!).maybeSingle(),
       ]);
       if (academyError) throw academyError;
+      if (billingError) throw billingError;
       return { academy, billing };
     },
   });

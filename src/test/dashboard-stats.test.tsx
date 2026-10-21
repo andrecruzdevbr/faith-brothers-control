@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryLoadError } from "@/components/QueryLoadError";
 import {
+  buildStudentStatusChart,
   isLegitimateEmptyDashboard,
   resolveDashboardView,
   throwIfQueryFailed,
@@ -60,6 +61,48 @@ describe("dashboard query failure vs empty success", () => {
     expect(
       isLegitimateEmptyDashboard({ totalStudents: 12, activeContracts: 3, monthRevenue: 1500 }),
     ).toBe(false);
+  });
+});
+
+describe("relatorios student status empty state", () => {
+  it("does not say Sem alunos cadastrados when only pending students exist", () => {
+    const chart = buildStudentStatusChart({
+      active: 0,
+      inactive: 0,
+      pending: 3,
+      rejected: 0,
+    });
+    expect(chart.kind).toBe("chart");
+    expect(chart.message).toMatch(/pendente/i);
+    expect(chart.slices).toEqual([
+      { name: "Pendentes", value: 3, color: "hsl(38, 92%, 50%)" },
+    ]);
+  });
+
+  it("uses Sem alunos cadastrados only when the academy has zero students", () => {
+    const chart = buildStudentStatusChart({
+      active: 0,
+      inactive: 0,
+      pending: 0,
+      rejected: 0,
+    });
+    expect(chart.kind).toBe("no-students");
+    expect(chart.message).toBe("Sem alunos cadastrados.");
+  });
+
+  it("keeps rejected students out of the Pendentes slice", () => {
+    const chart = buildStudentStatusChart({
+      active: 2,
+      inactive: 1,
+      pending: 1,
+      rejected: 1,
+    });
+    expect(chart.slices).toEqual([
+      { name: "Ativos", value: 2, color: "hsl(142, 71%, 45%)" },
+      { name: "Inativos", value: 1, color: "hsl(0, 0%, 40%)" },
+      { name: "Pendentes", value: 1, color: "hsl(38, 92%, 50%)" },
+      { name: "Rejeitados", value: 1, color: "hsl(0, 0%, 55%)" },
+    ]);
   });
 });
 

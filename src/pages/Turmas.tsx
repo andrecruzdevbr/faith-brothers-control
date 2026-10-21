@@ -24,7 +24,9 @@ import {
   LEVEL_LABELS,
   MODALITY_LABELS,
   WEEKDAY_LABELS,
+  displayClassNotes,
   formatStartTime,
+  persistClassNotes,
   type ClassAudience,
   type ClassLevel,
   type ClassModality,
@@ -86,6 +88,7 @@ const Turmas = () => {
     mutationFn: async (values: Draft) => {
       if (!academyId) throw new Error("Academia não encontrada");
       const day = Number(values.day_of_week);
+      const original = values.id ? rows.find((row) => row.id === values.id) : undefined;
       const payload = {
         academy_id: academyId,
         name: values.name.trim(),
@@ -94,7 +97,7 @@ const Turmas = () => {
         audience: values.audience,
         level: values.level || null,
         modality: values.modality,
-        notes: values.notes.trim() || null,
+        notes: persistClassNotes(original?.notes, values.notes),
         sort_order: Number(values.sort_order || 0),
         active: values.active,
         schedule_days: WEEKDAY_LABELS[day] ?? "",
@@ -213,7 +216,7 @@ const Turmas = () => {
                         audience: (row.audience as ClassAudience) || "adulto",
                         level: (row.level as ClassLevel) || "",
                         modality: (row.modality as ClassModality) || "gi",
-                        notes: row.notes && row.notes !== "official_v1" ? row.notes : "",
+                        notes: displayClassNotes(row.notes),
                         sort_order: String(row.sort_order ?? 0),
                         active: row.active !== false,
                       });

@@ -4,10 +4,12 @@ import { CheckCircle, Calendar, Search, Users, QrCode, StopCircle } from "lucide
 import { QRCodeSVG } from "qrcode.react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { QueryLoadError } from "@/components/QueryLoadError";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { generateUUID } from "@/lib/uuid";
+import { fetchAllRows } from "@/lib/paged-query";
 
 type StudentEntry = {
   id: string;
@@ -36,43 +38,59 @@ const Presencas = () => {
   const [activeSession, setActiveSession] = useState<{ id: string; token: string } | null>(null);
   const [sessionAttendances, setSessionAttendances] = useState<AttendanceRecord[]>([]);
   const [loadingSession, setLoadingSession] = useState(false);
+  const [studentsError, setStudentsError] = useState<string | null>(null);
+  const [loadingStudents, setLoadingStudents] = useState(false);
 
-  // Load students
+  const loadStudents = useCallback(async () => {
+    if (!user?.academyId) return;
+    setLoadingStudents(true);
+    setStudentsError(null);
+    try {
+      const data = await fetchAllRows<StudentEntry>((from, to) =>
+        supabase
+          .from("students")
+          .select("id, full_name, belt")
+          .eq("academy_id", user.academyId)
+          .eq("status", "ativo")
+          .order("full_name")
+          .range(from, to),
+      );
+      setStudents(data);
+    } catch (e) {
+      setStudents([]);
+      setStudentsError(e instanceof Error ? e.message : "Erro ao carregar alunos.");
+    } finally {
+      setLoadingStudents(false);
+    }
+  }, [user?.academyId]);
+
   useEffect(() => {
-    const load = async () => {
-      if (!user?.academyId) return;
-      const { data } = await supabase
-        .from("students")
-        .select("id, full_name, belt")
-        .eq("academy_id", user.academyId)
-        .eq("status", "ativo")
-        .order("full_name");
-      if (data) setStudents(data);
-    };
-    void load();
-  }, [user]);
+    void loadStudents();
+  }, [loadStudents]);
 
   const loadSessionAttendances = useCallback(async (sessionId: string) => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("attendances")
       .select("student_id, checked_in_at")
       .eq("session_id", sessionId)
       .order("checked_in_at");
 
-    if (data) {
-      const enriched = data.map((a) => {
-        const s = students.find((st) => st.id === a.student_id);
-        return { ...a, full_name: s?.full_name };
-      });
-      setSessionAttendances(enriched);
+    if (error) {
+      toast({ title: "Erro ao carregar presenças da aula", description: error.message, variant: "destructive" });
+      return;
     }
-  }, [students]);
+    const enriched = (data ?? []).map((a) => {
+      const s = students.find((st) => st.id === a.student_id);
+      return { ...a, full_name: s?.full_name };
+    });
+    setSessionAttendances(enriched);
+  }, [students, toast]);
 
   // Check for active session
   useEffect(() => {
     const checkSession = async () => {
       if (!user?.academyId) return;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("attendance_sessions")
         .select("id, token")
         .eq("academy_id", user.academyId)
@@ -82,13 +100,17 @@ const Presencas = () => {
         .order("started_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+      if (error) {
+        toast({ title: "Erro ao verificar aula ativa", description: error.message, variant: "destructive" });
+        return;
+      }
       if (data) {
         setActiveSession(data);
         void loadSessionAttendances(data.id);
       }
     };
     void checkSession();
-  }, [user, loadSessionAttendances]);
+  }, [user, loadSessionAttendances, toast]);
 
   // Load attendances for selected student
   useEffect(() => {
@@ -97,19 +119,21 @@ const Presencas = () => {
       const startOfMonth = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-01T00:00:00`;
       const endOfMonth = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${daysInMonth}T23:59:59`;
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("attendances")
         .select("checked_in_at")
         .eq("student_id", selectedStudent.id)
         .gte("checked_in_at", startOfMonth)
         .lte("checked_in_at", endOfMonth);
 
-      if (data) {
-        setStudentAttendances(new Set(data.map((a) => new Date(a.checked_in_at).getDate())));
+      if (error) {
+        toast({ title: "Erro ao carregar o calendário", description: error.message, variant: "destructive" });
+        return;
       }
+      setStudentAttendances(new Set((data ?? []).map((a) => new Date(a.checked_in_at).getDate())));
     };
     void load();
-  }, [selectedStudent]);
+  }, [selectedStudent, toast]);
 
   const startSession = async () => {
     if (!user?.academyId) return;
@@ -176,6 +200,18 @@ const Presencas = () => {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl md:text-3xl font-display font-bold tracking-wider">PRESENÇAS</h1>
+      {loadingStudents ? (
+        <p className="text-sm text-muted-foreground">Carregando alunos...</p>
+      ) : null}
+      {studentsError ? (
+        <QueryLoadError
+          compact
+          message={studentsError}
+          onRetry={() => {
+            void loadStudents();
+          }}
+        />
+      ) : null}
 
       {/* QR Code Session */}
       <motion.div

@@ -23,9 +23,11 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryLoadError } from "@/components/QueryLoadError";
 import { StatsCard } from "@/components/StatsCard";
-import { useDashboardStats, useReportBillings, useRanking } from "@/hooks/useQueries";
+import { useBeltDistribution, useDashboardStats, useReportBillings, useRanking } from "@/hooks/useQueries";
 import { BILLING_STATUS_LABELS } from "@/lib/constants";
-import { buildMonthlyReceiptSeries } from "@/lib/finance-indicators";
+import { buildBeltDistribution } from "@/lib/belt-rank";
+import { buildStudentStatusChart } from "@/lib/dashboard-view";
+import { buildMonthlyReceiptSeries, formatFinanceAxisTick } from "@/lib/finance-indicators";
 import { formatCurrency } from "@/lib/api";
 
 const CHART_TOOLTIP = {
@@ -78,25 +80,39 @@ const Relatorios = () => {
     data: billingsData,
     isLoading: billingsLoading,
     isError: billingsError,
+    error: billingsErr,
     refetch: refetchBillings,
   } = useReportBillings();
   const {
     data: ranking,
     isLoading: rankingLoading,
     isError: rankingError,
+    error: rankingErr,
     refetch: refetchRanking,
   } = useRanking();
+  const {
+    data: beltStudents,
+    isLoading: beltsLoading,
+    isError: beltsError,
+    error: beltsErr,
+    refetch: refetchBelts,
+  } = useBeltDistribution();
 
-  const isLoading = statsLoading || billingsLoading || rankingLoading;
-  const isError = statsError || billingsError || rankingError;
+  const isLoading = statsLoading || billingsLoading;
+  const isError = statsError || billingsError;
 
-  const alunosStatusData = useMemo(() => {
-    if (!stats) return [];
-    return [
-      { name: "Ativos", value: stats.activeStudents, color: "hsl(142, 71%, 45%)" },
-      { name: "Inativos", value: stats.inactiveStudents, color: "hsl(0, 0%, 40%)" },
-    ].filter((d) => d.value > 0);
+  const alunosStatusChart = useMemo(() => {
+    if (!stats) {
+      return { kind: "no-students" as const, message: "Sem alunos cadastrados.", slices: [] };
+    }
+    return buildStudentStatusChart({
+      active: stats.activeStudents,
+      inactive: stats.inactiveStudents,
+      pending: stats.pendingStudents,
+      rejected: stats.rejectedStudents,
+    });
   }, [stats]);
+  const alunosStatusData = alunosStatusChart.slices;
 
   const rankingChartData = useMemo(() => {
     return (ranking ?? []).slice(0, 10).map((s) => ({
@@ -106,17 +122,11 @@ const Relatorios = () => {
   }, [ranking]);
 
   const faixaDistribuicao = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const s of ranking ?? []) {
-      const belt = s.belt || "Branca";
-      counts.set(belt, (counts.get(belt) ?? 0) + 1);
-    }
-    return Array.from(counts.entries()).map(([name, value]) => ({
-      name,
-      value,
-      color: BELT_COLORS[name] ?? "hsl(0, 0%, 50%)",
+    return buildBeltDistribution(beltStudents ?? []).map((row) => ({
+      ...row,
+      color: BELT_COLORS[row.name] ?? "hsl(0, 0%, 50%)",
     }));
-  }, [ranking]);
+  }, [beltStudents]);
 
   const faturamentoMensal = useMemo(() => {
     return buildMonthlyReceiptSeries({
@@ -154,7 +164,13 @@ const Relatorios = () => {
     return (
       <QueryLoadError
         title="RELATÓRIOS"
-        message={statsErr instanceof Error ? statsErr.message : "Erro ao carregar relatórios."}
+        message={
+          statsErr instanceof Error
+            ? statsErr.message
+            : billingsErr instanceof Error
+              ? billingsErr.message
+              : "Erro ao carregar relatórios."
+        }
         onRetry={() => {
           void refetchStats();
           void refetchBillings();
@@ -208,7 +224,17 @@ const Relatorios = () => {
             <BarChart3 className="h-5 w-5 text-primary" />
             TOP 10 — TREINOS (30 DIAS)
           </h3>
-          {rankingChartData.length === 0 ? (
+          {rankingLoading ? (
+            <Skeleton className="h-[250px] w-full rounded-lg" />
+          ) : rankingError ? (
+            <QueryLoadError
+              compact
+              message={rankingErr instanceof Error ? rankingErr.message : "Erro ao carregar o ranking."}
+              onRetry={() => {
+                void refetchRanking();
+              }}
+            />
+          ) : rankingChartData.length === 0 ? (
             <p className="text-sm text-muted-foreground py-16 text-center">Sem dados de presença.</p>
           ) : (
             <ResponsiveContainer width="100%" height={250}>
@@ -229,10 +255,14 @@ const Relatorios = () => {
           transition={{ delay: 0.05 }}
           className="rounded-xl border border-border bg-card p-5 shadow-card"
         >
-          <h3 className="font-display text-lg font-bold tracking-wider mb-4">ALUNOS ATIVOS VS INATIVOS</h3>
-          {alunosStatusData.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-16 text-center">Sem alunos cadastrados.</p>
+          <h3 className="font-display text-lg font-bold tracking-wider mb-4">ALUNOS POR STATUS</h3>
+          {alunosStatusChart.kind === "no-students" ? (
+            <p className="text-sm text-muted-foreground py-16 text-center">{alunosStatusChart.message}</p>
           ) : (
+            <>
+            {alunosStatusChart.message ? (
+              <p className="text-xs text-muted-foreground mb-2">{alunosStatusChart.message}</p>
+            ) : null}
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
                 <Pie
@@ -252,6 +282,7 @@ const Relatorios = () => {
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
+            </>
           )}
         </motion.div>
       </div>
@@ -271,7 +302,12 @@ const Relatorios = () => {
               <BarChart data={faturamentoMensal}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(0, 0%, 18%)" />
                 <XAxis dataKey="mes" stroke="hsl(0, 0%, 55%)" fontSize={12} />
-                <YAxis stroke="hsl(0, 0%, 55%)" fontSize={12} tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`} />
+                <YAxis
+                  stroke="hsl(0, 0%, 55%)"
+                  fontSize={12}
+                  allowDecimals={false}
+                  tickFormatter={(v) => formatFinanceAxisTick(v, faturamentoMensal.map((row) => row.valor))}
+                />
                 <Tooltip
                   contentStyle={CHART_TOOLTIP}
                   formatter={(value: number) => [formatCurrency(value), "Receita"]}
@@ -289,7 +325,17 @@ const Relatorios = () => {
           className="rounded-xl border border-border bg-card p-5 shadow-card"
         >
           <h3 className="font-display text-lg font-bold tracking-wider mb-4">DISTRIBUIÇÃO POR FAIXA</h3>
-          {faixaDistribuicao.length === 0 ? (
+          {beltsLoading ? (
+            <Skeleton className="h-[250px] w-full rounded-lg" />
+          ) : beltsError ? (
+            <QueryLoadError
+              compact
+              message={beltsErr instanceof Error ? beltsErr.message : "Erro ao carregar a distribuição de faixas."}
+              onRetry={() => {
+                void refetchBelts();
+              }}
+            />
+          ) : faixaDistribuicao.length === 0 ? (
             <p className="text-sm text-muted-foreground py-16 text-center">Sem dados de faixas.</p>
           ) : (
             <ResponsiveContainer width="100%" height={250}>
@@ -321,7 +367,7 @@ const Relatorios = () => {
           transition={{ delay: 0.2 }}
           className="rounded-xl border border-border bg-card p-5 shadow-card"
         >
-          <h3 className="font-display text-lg font-bold tracking-wider mb-4">COBRANÇAS RECENTES POR STATUS</h3>
+          <h3 className="font-display text-lg font-bold tracking-wider mb-4">COBRANÇAS DOS ÚLTIMOS 6 MESES POR STATUS</h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={cobrancasStatus} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(0, 0%, 18%)" />

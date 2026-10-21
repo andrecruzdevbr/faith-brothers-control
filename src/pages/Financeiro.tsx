@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
-  TrendingUp, AlertCircle, CheckCircle, MessageCircle,
+  TrendingUp, AlertCircle, CheckCircle, MessageCircle, DollarSign,
   ChevronLeft, ChevronRight, Loader2, ExternalLink, Receipt, Send,
 } from "lucide-react";
+import { QueryLoadError } from "@/components/QueryLoadError";
 import { StatsCard } from "@/components/StatsCard";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -48,6 +49,9 @@ import {
 } from "@/lib/billing";
 import { formatWhatsapp } from "@/lib/whatsapp-auth";
 import { formatFinanceDocumentDisplay } from "@/lib/academy-finance";
+import { FINANCE_INDICATOR_LABELS, RECEIVABLE_BILLING_STATUSES, readFinanceExtras } from "@/lib/finance-indicators";
+import { resolveQuerySectionView } from "@/lib/dashboard-view";
+import { fetchAllRows } from "@/lib/paged-query";
 
 type BillingRunSummary = {
   created: number;
@@ -120,10 +124,29 @@ const Financeiro = () => {
   const [resendBillingId, setResendBillingId] = useState<string | null>(null);
   const [selectedReferenceMonth, setSelectedReferenceMonth] = useState<string>("");
 
-  const { data: stats, isLoading: loadingStats } = useDashboardStats();
-  const { data: plans, isLoading: loadingPlans } = usePlans();
+  const {
+    data: stats,
+    isLoading: loadingStats,
+    isError: statsError,
+    error: statsErr,
+    refetch: refetchStats,
+  } = useDashboardStats();
+  const {
+    data: plans,
+    isLoading: loadingPlans,
+    isError: plansError,
+    error: plansErr,
+    refetch: refetchPlans,
+  } = usePlans();
   const { data: settings, isLoading: loadingSettings } = useAcademySettings();
-  const { data: billingsData, isLoading: loadingBillings, isFetching } = useBillings(page, statusFilter);
+  const {
+    data: billingsData,
+    isLoading: loadingBillings,
+    isError: billingsError,
+    error: billingsErr,
+    isFetching,
+    refetch: refetchBillings,
+  } = useBillings(page, statusFilter);
 
   const dueDay = settings?.billing?.boleto_due_day ?? 15;
   const issueDay = settings?.billing?.boleto_issue_day ?? 10;
@@ -159,19 +182,28 @@ const Financeiro = () => {
   const total = billingsData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const { data: financeExtras, isLoading: loadingExtras } = useQuery({
+  const {
+    data: financeExtras,
+    isLoading: loadingExtras,
+    isError: extrasError,
+    error: extrasErr,
+    refetch: refetchExtras,
+  } = useQuery({
     queryKey: ["finance-extras", academyId],
     enabled: !!academyId,
     queryFn: async () => {
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
 
-      const [{ data: receivable }, { count: paidCount }] = await Promise.all([
-        supabase
-          .from("billings")
-          .select("amount")
-          .eq("academy_id", academyId!)
-          .in("status", ["pendente", "gerado", "enviado_whatsapp"]),
+      const [receivableRows, paid] = await Promise.all([
+        fetchAllRows<{ amount: number; status: string }>((from, to) =>
+          supabase
+            .from("billings")
+            .select("amount, status")
+            .eq("academy_id", academyId!)
+            .in("status", [...RECEIVABLE_BILLING_STATUSES])
+            .range(from, to),
+        ).then((data) => ({ data, error: null as { message: string } | null })),
         supabase
           .from("billings")
           .select("id", { count: "exact", head: true })
@@ -180,30 +212,42 @@ const Financeiro = () => {
           .gte("reference_month", monthStart),
       ]);
 
-      const aReceber = (receivable ?? []).reduce((s, b) => s + Number(b.amount), 0);
-      return { aReceber, paidCount: paidCount ?? 0 };
+      return readFinanceExtras({ receivable: receivableRows, paid });
     },
   });
 
-  const { data: planCounts } = useQuery({
+  const {
+    data: planCounts,
+    isError: planCountsError,
+    error: planCountsErr,
+    refetch: refetchPlanCounts,
+  } = useQuery({
     queryKey: ["plan-student-counts", academyId],
     enabled: !!academyId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("students")
-        .select("plan_id")
-        .eq("academy_id", academyId!)
-        .eq("status", "ativo");
-      if (error) throw error;
+      const data = await fetchAllRows<{ plan_id: string | null }>((from, to) =>
+        supabase
+          .from("students")
+          .select("plan_id")
+          .eq("academy_id", academyId!)
+          .eq("status", "ativo")
+          .range(from, to),
+      );
       const counts = new Map<string, number>();
-      for (const s of data ?? []) {
+      for (const s of data) {
         if (s.plan_id) counts.set(s.plan_id, (counts.get(s.plan_id) ?? 0) + 1);
       }
       return counts;
     },
   });
 
-  const { data: eligibleStudents, isLoading: loadingEligible } = useQuery({
+  const {
+    data: eligibleStudents,
+    isLoading: loadingEligible,
+    isError: eligibleError,
+    error: eligibleErr,
+    refetch: refetchEligible,
+  } = useQuery({
     queryKey: ["eligible-billing-students", academyId, referenceMonth],
     enabled: !!academyId && isAdmin,
     queryFn: async () => {
@@ -398,7 +442,34 @@ const Financeiro = () => {
 
   const academy = isFullAcademy(settings?.academy) ? settings.academy : null;
   const billingSettings = settings?.billing;
-  const loading = loadingStats || loadingExtras;
+  const indicatorsView = resolveQuerySectionView({
+    isLoading: loadingStats || loadingExtras,
+    isError: statsError || extrasError,
+    error: extrasErr ?? statsErr,
+    empty: false,
+    fallbackMessage: "Erro ao carregar indicadores financeiros.",
+  });
+  const billingsView = resolveQuerySectionView({
+    isLoading: loadingBillings,
+    isError: billingsError,
+    error: billingsErr,
+    empty: billings.length === 0,
+    fallbackMessage: "Erro ao carregar cobranças.",
+  });
+  const plansView = resolveQuerySectionView({
+    isLoading: loadingPlans,
+    isError: plansError,
+    error: plansErr,
+    empty: (plans ?? []).length === 0,
+    fallbackMessage: "Erro ao carregar planos.",
+  });
+  const eligibleView = resolveQuerySectionView({
+    isLoading: loadingEligible,
+    isError: eligibleError,
+    error: eligibleErr,
+    empty: (eligibleStudents ?? []).length === 0,
+    fallbackMessage: "Erro ao carregar alunos elegíveis.",
+  });
 
   return (
     <div className="space-y-6">
@@ -490,25 +561,55 @@ const Financeiro = () => {
         )}
       </div>
 
-      {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
+      {indicatorsView.status === "loading" ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
         </div>
+      ) : indicatorsView.status === "error" ? (
+        <QueryLoadError
+          compact
+          title="Indicadores"
+          message={indicatorsView.message}
+          onRetry={() => {
+            void refetchStats();
+            void refetchExtras();
+          }}
+        />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <StatsCard title="A Receber" value={formatCurrency(financeExtras?.aReceber ?? 0)} icon={TrendingUp} variant="warning" />
-          <StatsCard title="Inadimplentes" value={stats?.overdueCount ?? 0} icon={AlertCircle} variant="destructive" />
-          <StatsCard title="Pagos no Mês" value={financeExtras?.paidCount ?? 0} icon={CheckCircle} variant="success" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatsCard title={FINANCE_INDICATOR_LABELS.aReceber} value={formatCurrency(financeExtras?.aReceber ?? 0)} icon={TrendingUp} variant="warning" />
+          <StatsCard title={FINANCE_INDICATOR_LABELS.overdueCount} value={stats?.overdueCount ?? 0} icon={AlertCircle} variant="destructive" />
+          <StatsCard title={FINANCE_INDICATOR_LABELS.monthRevenue} value={formatCurrency(stats?.monthRevenue ?? 0)} icon={DollarSign} variant="success" />
+          <StatsCard title={FINANCE_INDICATOR_LABELS.asaasPaidCount} value={financeExtras?.asaasPaidCount ?? 0} icon={CheckCircle} variant="default" />
         </div>
       )}
 
       <div>
         <h3 className="font-display text-lg font-bold tracking-wider mb-4">PLANOS</h3>
-        {loadingPlans ? (
+        {planCountsError ? (
+          <div className="mb-3">
+            <QueryLoadError
+              compact
+              message={planCountsErr instanceof Error ? planCountsErr.message : "Erro ao carregar ocupação dos planos."}
+              onRetry={() => {
+                void refetchPlanCounts();
+              }}
+            />
+          </div>
+        ) : null}
+        {plansView.status === "loading" ? (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
           </div>
-        ) : (plans ?? []).length === 0 ? (
+        ) : plansView.status === "error" ? (
+          <QueryLoadError
+            compact
+            message={plansView.message}
+            onRetry={() => {
+              void refetchPlans();
+            }}
+          />
+        ) : plansView.status === "empty" ? (
           <p className="text-sm text-muted-foreground">Nenhum plano cadastrado.</p>
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -522,7 +623,11 @@ const Financeiro = () => {
               >
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">{p.name}</p>
                 <p className="text-2xl font-display font-bold text-primary mt-1">{formatCurrency(Number(p.monthly_price))}</p>
-                <p className="text-xs text-muted-foreground mt-1">{planCounts?.get(p.id) ?? 0} alunos</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {planCountsError
+                    ? "Ocupação indisponível"
+                    : `${planCounts?.get(p.id) ?? 0} alunos`}
+                </p>
               </motion.div>
             ))}
           </div>
@@ -543,11 +648,21 @@ const Financeiro = () => {
               Alunos ativos com plano e sem cobrança em {selectedPeriod.labelPt}. Vencimento: {selectedPeriod.dueDateLabelPt}.
             </p>
           </div>
-          {loadingEligible ? (
+          {eligibleView.status === "loading" ? (
             <div className="p-4 space-y-3">
               {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
             </div>
-          ) : (eligibleStudents ?? []).length === 0 ? (
+          ) : eligibleView.status === "error" ? (
+            <div className="p-5">
+              <QueryLoadError
+                compact
+                message={eligibleView.message}
+                onRetry={() => {
+                  void refetchEligible();
+                }}
+              />
+            </div>
+          ) : eligibleView.status === "empty" ? (
             <p className="p-6 text-sm text-muted-foreground">
               Todos os alunos elegíveis já possuem cobrança neste mês, ou não há alunos ativos com plano.
             </p>
@@ -629,11 +744,21 @@ const Financeiro = () => {
           <h3 className="font-display text-lg font-bold tracking-wider">COBRANÇAS</h3>
         </div>
 
-        {loadingBillings ? (
+        {billingsView.status === "loading" ? (
           <div className="p-4 space-y-3">
             {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
           </div>
-        ) : billings.length === 0 ? (
+        ) : billingsView.status === "error" ? (
+          <div className="p-5">
+            <QueryLoadError
+              compact
+              message={billingsView.message}
+              onRetry={() => {
+                void refetchBillings();
+              }}
+            />
+          </div>
+        ) : billingsView.status === "empty" ? (
           <p className="p-8 text-center text-sm text-muted-foreground">Nenhuma cobrança encontrada.</p>
         ) : (
           <div className="overflow-x-auto">

@@ -5,6 +5,7 @@ import { Search, Plus, ChevronLeft, ChevronRight, Check, Loader2, Shield, Wallet
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { QueryLoadError } from "@/components/QueryLoadError";
 import {
   Dialog,
   DialogContent,
@@ -128,7 +129,7 @@ const Alunos = () => {
   const [newStudentOpen, setNewStudentOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { data: academyId } = useAcademyId();
+  const { data: academyId, isError: academyError, error: academyErr, refetch: refetchAcademy } = useAcademyId();
 
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
@@ -181,13 +182,17 @@ const Alunos = () => {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  const { data, isLoading, isFetching } = useStudents(page, search);
+  const { data, isLoading, isFetching, isError: studentsError, error: studentsErr, refetch: refetchStudents } = useStudents(page, search);
   const students = data?.students ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const studentIds = students.map((s) => s.id);
+  const listError = academyError || studentsError;
+  const listErrorMessage = academyError
+    ? (academyErr instanceof Error ? academyErr.message : "Erro ao identificar a academia.")
+    : (studentsErr instanceof Error ? studentsErr.message : "Erro ao carregar alunos.");
 
-  const { data: financialMap } = useQuery({
+  const { data: financialMap, isError: financialMapError } = useQuery({
     queryKey: ["student-financial-map", academyId],
     enabled: !!academyId,
     queryFn: async () => {
@@ -337,6 +342,8 @@ const Alunos = () => {
           <h1 className="text-2xl md:text-3xl font-display font-bold tracking-wider">ALUNOS</h1>
           {isLoading ? (
             <Skeleton className="h-4 w-40 mt-1" />
+          ) : listError ? (
+            <p className="text-sm text-destructive mt-1">Não foi possível carregar os alunos.</p>
           ) : (
             <p className="text-sm text-muted-foreground mt-1">{total} alunos cadastrados</p>
           )}
@@ -371,6 +378,17 @@ const Alunos = () => {
           <div className="p-4 space-y-3">
             {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
           </div>
+        ) : listError ? (
+          <div className="p-4">
+            <QueryLoadError
+              compact
+              message={listErrorMessage}
+              onRetry={() => {
+                void refetchAcademy();
+                void refetchStudents();
+              }}
+            />
+          </div>
         ) : students.length === 0 ? (
           <p className="p-8 text-center text-sm text-muted-foreground">Nenhum aluno encontrado.</p>
         ) : (
@@ -396,8 +414,10 @@ const Alunos = () => {
               <tbody>
                 {students.map((aluno) => {
                   const plan = Array.isArray(aluno.plans) ? aluno.plans[0] : aluno.plans;
-                  const fin = financialMap?.get(aluno.id);
-                  const badge = getFinancialBadge(fin?.status ?? null, fin?.due_date ?? null);
+                  const fin = financialMapError ? undefined : financialMap?.get(aluno.id);
+                  const badge = financialMapError
+                    ? { label: "Indisponível", class: "text-destructive bg-destructive/10" }
+                    : getFinancialBadge(fin?.status ?? null, fin?.due_date ?? null);
                   const isPending = aluno.status === "pendente_aprovacao";
                   const taxInfo = taxIdMap?.get(aluno.id);
                   const taxLabel = formatBillingTaxIdLabel(taxInfo);

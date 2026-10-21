@@ -1,6 +1,21 @@
 /** Pure finance indicators. Package/contract receipts are not multiplied per member. */
 
 export const OPEN_BILLING_STATUSES = ["pendente", "gerado", "enviado_whatsapp"] as const;
+export const RECEIVABLE_BILLING_STATUSES = ["pendente", "gerado", "enviado_whatsapp", "vencido"] as const;
+
+export const FINANCE_INDICATOR_LABELS = {
+  aReceber: "A Receber",
+  aReceberHint: "Boletos em aberto, incluindo vencidos. Exclui pagos e cancelados.",
+  overdueCount: "Inadimplentes",
+  monthRevenue: "Faturamento Mês",
+  monthRevenueHint: "Recebimentos consolidados (boletos Asaas + contratos), sem duplicar mês pré-pago.",
+  asaasPaidCount: "Boletos Asaas pagos (mês)",
+  asaasPaidCountHint: "Quantidade de boletos Asaas com status pago no mês. Não é valor em reais.",
+} as const;
+
+export function isReceivableBillingStatus(status: string): boolean {
+  return (RECEIVABLE_BILLING_STATUSES as readonly string[]).includes(status);
+}
 
 export type BillingSnapshot = {
   studentId: string;
@@ -123,4 +138,52 @@ export function isBillingUniqueViolation(error: { code?: string; message?: strin
   if (!error) return false;
   if (error.code === "23505") return true;
   return /duplicate key|unique constraint/i.test(error.message ?? "");
+}
+
+export type FinanceExtras = { aReceber: number; asaasPaidCount: number };
+
+export function sumReceivableAmounts(
+  rows: Array<{ amount: number; status?: string | null }>,
+): number {
+  let total = 0;
+  for (const row of rows) {
+    if (row.status && !isReceivableBillingStatus(row.status)) continue;
+    total += Number(row.amount) || 0;
+  }
+  return Math.round(total * 100) / 100;
+}
+
+export function readFinanceExtras(input: {
+  receivable: { data: Array<{ amount: number; status?: string | null }> | null; error: { message: string } | null };
+  paid: { count: number | null; error: { message: string } | null };
+}): FinanceExtras {
+  if (input.receivable.error) throw new Error(input.receivable.error.message);
+  if (input.paid.error) throw new Error(input.paid.error.message);
+  return {
+    aReceber: sumReceivableAmounts(input.receivable.data ?? []),
+    asaasPaidCount: input.paid.count ?? 0,
+  };
+}
+
+export function reconcileMonthRevenue(input: {
+  dashboardRevenue: number;
+  reportSeriesValue: number;
+}): { ok: boolean; dashboardRevenue: number; reportSeriesValue: number } {
+  const dashboardRevenue = Math.round(input.dashboardRevenue * 100) / 100;
+  const reportSeriesValue = Math.round(input.reportSeriesValue * 100) / 100;
+  return {
+    ok: dashboardRevenue === reportSeriesValue,
+    dashboardRevenue,
+    reportSeriesValue,
+  };
+}
+
+export function formatFinanceAxisTick(value: number, seriesValues: number[]): string {
+  const max = Math.max(0, ...seriesValues);
+  if (max === 0) return value === 0 ? "R$ 0" : "";
+  if (max < 1000) return `R$ ${Math.round(value)}`;
+  const thousands = value / 1000;
+  const digits = max >= 10_000 ? 0 : 1;
+  const label = thousands.toFixed(digits).replace(/\.0$/, "");
+  return `R$${label}k`;
 }

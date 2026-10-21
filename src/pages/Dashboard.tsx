@@ -9,14 +9,16 @@ import { StatsCard } from "@/components/StatsCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
-import { useAcademyId, useDashboardStats, useRanking } from "@/hooks/useQueries";
+import { useAcademyId, useDashboardStats, useRanking, useReportBillings } from "@/hooks/useQueries";
 import { formatCurrency, formatDateBR } from "@/lib/api";
 import { resolveDashboardView } from "@/lib/dashboard-view";
+import { buildEvasionRisk } from "@/lib/evasion-risk";
+import { buildMonthlyReceiptSeries, formatFinanceAxisTick } from "@/lib/finance-indicators";
+import { fetchAllRows } from "@/lib/paged-query";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar,
 } from "recharts";
 
-const MONTHS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const chartTooltipStyle = {
   background: "hsl(0, 0%, 10%)",
@@ -38,7 +40,38 @@ const Dashboard = () => {
     error: statsErr,
     refetch: refetchStats,
   } = useDashboardStats();
-  const { data: ranking, isLoading: loadingRanking } = useRanking();
+  const { data: ranking, isLoading: loadingRanking, isError: rankingError, error: rankingErr, refetch: refetchRanking } = useRanking();
+  const {
+    data: receiptRows,
+    isLoading: loadingRevenue,
+    isError: revenueError,
+    error: revenueErr,
+    refetch: refetchRevenue,
+  } = useReportBillings();
+  const revenueChart = useMemo(
+    () =>
+      buildMonthlyReceiptSeries({
+        billings: (receiptRows?.billings ?? []).map((row) => ({
+          studentId: row.student_id,
+          referenceMonth: row.reference_month,
+          amount: Number(row.amount),
+          status: row.status,
+        })),
+        coveredMonths: (receiptRows?.coveredMonths ?? []).map((row) => ({
+          studentId: row.student_id,
+          referenceMonth: row.reference_month,
+        })),
+        contractPayments: (receiptRows?.contractPayments ?? []).map((row) => ({
+          amount: Number(row.amount),
+          confirmedAt: row.confirmed_at,
+        })),
+      }),
+    [receiptRows],
+  );
+  const revenueAxisTick = useMemo(
+    () => (value: number) => formatFinanceAxisTick(value, revenueChart.map((row) => row.valor)),
+    [revenueChart],
+  );
   const statsView = resolveDashboardView({
     isLoading: loadingStats,
     isError: statsError,
@@ -52,38 +85,7 @@ const Dashboard = () => {
       : null,
   });
 
-  const { data: revenueChart, isLoading: loadingRevenue } = useQuery({
-    queryKey: ["dashboard-revenue-chart", academyId],
-    enabled: !!academyId,
-    queryFn: async () => {
-      const now = new Date();
-      const start = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-      const { data, error } = await supabase
-        .from("billings")
-        .select("amount, reference_month")
-        .eq("academy_id", academyId!)
-        .eq("status", "pago")
-        .gte("reference_month", start.toISOString().slice(0, 10));
-      if (error) throw error;
-
-      const buckets = new Map<string, number>();
-      for (let i = 0; i < 6; i++) {
-        const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
-        buckets.set(`${d.getFullYear()}-${d.getMonth()}`, 0);
-      }
-      for (const b of data ?? []) {
-        const ref = new Date(b.reference_month + "T12:00:00");
-        const key = `${ref.getFullYear()}-${ref.getMonth()}`;
-        if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + Number(b.amount));
-      }
-      return Array.from(buckets.entries()).map(([key, valor]) => {
-        const month = Number(key.split("-")[1]);
-        return { mes: MONTHS[month], valor };
-      });
-    },
-  });
-
-  const { data: frequencyChart, isLoading: loadingFrequency } = useQuery({
+  const { data: frequencyChart, isLoading: loadingFrequency, isError: frequencyError, error: frequencyErr, refetch: refetchFrequency } = useQuery({
     queryKey: ["dashboard-frequency-chart", academyId],
     enabled: !!academyId,
     queryFn: async () => {
@@ -91,16 +93,18 @@ const Dashboard = () => {
       weekStart.setDate(weekStart.getDate() - weekStart.getDay());
       weekStart.setHours(0, 0, 0, 0);
 
-      const { data, error } = await supabase
-        .from("attendances")
-        .select("student_id, checked_in_at")
-        .eq("academy_id", academyId!)
-        .gte("checked_in_at", weekStart.toISOString());
-      if (error) throw error;
+      const data = await fetchAllRows<{ student_id: string; checked_in_at: string }>((from, to) =>
+        supabase
+          .from("attendances")
+          .select("student_id, checked_in_at")
+          .eq("academy_id", academyId!)
+          .gte("checked_in_at", weekStart.toISOString())
+          .range(from, to),
+      );
 
       const counts = [0, 0, 0, 0, 0, 0, 0];
       const seen = Array.from({ length: 7 }, () => new Set<string>());
-      for (const a of data ?? []) {
+      for (const a of data) {
         const day = new Date(a.checked_in_at).getDay();
         if (!seen[day].has(a.student_id)) {
           seen[day].add(a.student_id);
@@ -111,62 +115,28 @@ const Dashboard = () => {
     },
   });
 
-  const { data: evasionRisk, isLoading: loadingEvasion } = useQuery({
+  const { data: evasionRisk, isLoading: loadingEvasion, isError: evasionError, error: evasionErr, refetch: refetchEvasion } = useQuery({
     queryKey: ["dashboard-evasion", academyId],
     enabled: !!academyId,
     queryFn: async () => {
-      const oneWeekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
       const twoWeeksAgo = new Date(Date.now() - 14 * 86400000).toISOString();
-
-      const [{ data: students }, { data: recentAtts }, { data: overdueBills }] = await Promise.all([
-        supabase.from("students").select("id, full_name").eq("academy_id", academyId!).eq("status", "ativo"),
-        supabase.from("attendances").select("student_id, checked_in_at").eq("academy_id", academyId!).gte("checked_in_at", twoWeeksAgo),
-        supabase.from("billings").select("student_id").eq("academy_id", academyId!).eq("status", "vencido"),
+      const [students, recentAtts, overdueBills] = await Promise.all([
+        fetchAllRows<{ id: string; full_name: string }>((from, to) =>
+          supabase.from("students").select("id, full_name").eq("academy_id", academyId!).eq("status", "ativo").range(from, to),
+        ).then((data) => ({ data, error: null as { message: string } | null })),
+        fetchAllRows<{ student_id: string; checked_in_at: string }>((from, to) =>
+          supabase.from("attendances").select("student_id, checked_in_at").eq("academy_id", academyId!).gte("checked_in_at", twoWeeksAgo).range(from, to),
+        ).then((data) => ({ data, error: null as { message: string } | null })),
+        fetchAllRows<{ student_id: string }>((from, to) =>
+          supabase.from("billings").select("student_id").eq("academy_id", academyId!).eq("status", "vencido").range(from, to),
+        ).then((data) => ({ data, error: null as { message: string } | null })),
       ]);
 
-      const overdueSet = new Set(overdueBills?.map((b) => b.student_id) ?? []);
-      const attMap = new Map<string, string[]>();
-      recentAtts?.forEach((a) => {
-        const arr = attMap.get(a.student_id) ?? [];
-        arr.push(a.checked_in_at);
-        attMap.set(a.student_id, arr);
+      return buildEvasionRisk({
+        students,
+        attendances: recentAtts,
+        overdueBills,
       });
-
-      const results: { full_name: string; dias: number; risco: "alto" | "medio" | "baixo"; reason: string }[] = [];
-
-      for (const s of students ?? []) {
-        const atts = attMap.get(s.id) ?? [];
-        const lastAtt = atts.length > 0 ? new Date(Math.max(...atts.map((d) => new Date(d).getTime()))) : null;
-        const dias = lastAtt ? Math.floor((Date.now() - lastAtt.getTime()) / 86400000) : 99;
-        const hasRecentAtt = atts.some((d) => new Date(d) >= new Date(oneWeekAgo));
-        const hasOverdue = overdueSet.has(s.id);
-        const noAtt14 = atts.length === 0;
-
-        let risco: "alto" | "medio" | "baixo" | null = null;
-        let reason = "";
-
-        if (noAtt14 && hasOverdue) {
-          risco = "alto";
-          reason = "Sem presença há 14+ dias + pagamento atrasado";
-        } else if (noAtt14) {
-          risco = "medio";
-          reason = "Sem presença há 14+ dias";
-        } else if (!hasRecentAtt && hasOverdue) {
-          risco = "medio";
-          reason = "Baixa frequência + pagamento atrasado";
-        } else if (hasOverdue) {
-          risco = "baixo";
-          reason = "Pagamento atrasado";
-        } else if (!hasRecentAtt) {
-          risco = "baixo";
-          reason = "Baixa frequência recente";
-        }
-
-        if (risco) results.push({ full_name: s.full_name, dias, risco, reason });
-      }
-
-      const order = { alto: 0, medio: 1, baixo: 2 };
-      return results.sort((a, b) => order[a.risco] - order[b.risco]).slice(0, 5);
     },
   });
 
@@ -230,9 +200,17 @@ const Dashboard = () => {
           <h3 className="font-display text-lg font-bold tracking-wider mb-4">FATURAMENTO MENSAL</h3>
           {loadingRevenue ? (
             <Skeleton className="h-[250px] w-full rounded-lg" />
+          ) : revenueError ? (
+            <QueryLoadError
+              compact
+              message={revenueErr instanceof Error ? revenueErr.message : "Erro ao carregar o faturamento mensal."}
+              onRetry={() => {
+                void refetchRevenue();
+              }}
+            />
           ) : (
             <ResponsiveContainer width="100%" height={250}>
-              <AreaChart data={revenueChart ?? []}>
+              <AreaChart data={revenueChart}>
                 <defs>
                   <linearGradient id="faturamentoGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="hsl(355, 87%, 41%)" stopOpacity={0.3} />
@@ -241,7 +219,7 @@ const Dashboard = () => {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(0, 0%, 18%)" />
                 <XAxis dataKey="mes" stroke="hsl(0, 0%, 55%)" fontSize={12} />
-                <YAxis stroke="hsl(0, 0%, 55%)" fontSize={12} tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`} />
+                <YAxis stroke="hsl(0, 0%, 55%)" fontSize={12} tickFormatter={revenueAxisTick} allowDecimals={false} />
                 <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [formatCurrency(v), "Receita"]} />
                 <Area type="monotone" dataKey="valor" stroke="hsl(355, 87%, 41%)" strokeWidth={2} fill="url(#faturamentoGradient)" />
               </AreaChart>
@@ -253,6 +231,14 @@ const Dashboard = () => {
           <h3 className="font-display text-lg font-bold tracking-wider mb-4">FREQUÊNCIA SEMANAL</h3>
           {loadingFrequency ? (
             <Skeleton className="h-[250px] w-full rounded-lg" />
+          ) : frequencyError ? (
+            <QueryLoadError
+              compact
+              message={frequencyErr instanceof Error ? frequencyErr.message : "Erro ao carregar a frequência semanal."}
+              onRetry={() => {
+                void refetchFrequency();
+              }}
+            />
           ) : (
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={frequencyChart ?? []}>
@@ -343,6 +329,14 @@ const Dashboard = () => {
             <div className="space-y-3">
               {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-14 rounded-lg" />)}
             </div>
+          ) : rankingError ? (
+            <QueryLoadError
+              compact
+              message={rankingErr instanceof Error ? rankingErr.message : "Erro ao carregar o ranking."}
+              onRetry={() => {
+                void refetchRanking();
+              }}
+            />
           ) : topRanking.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nenhum treino registrado nos últimos 30 dias.</p>
           ) : (
@@ -377,6 +371,14 @@ const Dashboard = () => {
             <div className="space-y-3">
               {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-14 rounded-lg" />)}
             </div>
+          ) : evasionError ? (
+            <QueryLoadError
+              compact
+              message={evasionErr instanceof Error ? evasionErr.message : "Erro ao carregar o risco de evasão."}
+              onRetry={() => {
+                void refetchEvasion();
+              }}
+            />
           ) : (evasionRisk ?? []).length === 0 ? (
             <p className="text-sm text-muted-foreground">Nenhum aluno em risco no momento.</p>
           ) : (

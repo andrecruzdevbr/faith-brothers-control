@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   AUDIENCE_LABELS,
   MODALITY_LABELS,
+  displayClassNotes,
   filterClassSchedules,
   formatClassTitle,
   formatStartTime,
@@ -117,8 +118,8 @@ export function ClassScheduleBoard({
                           ) : (
                             <p className="text-xs text-muted-foreground">{MODALITY_LABELS.gi}</p>
                           )}
-                          {item.notes ? (
-                            <p className="text-xs text-muted-foreground">{item.notes}</p>
+                          {displayClassNotes(item.notes) ? (
+                            <p className="text-xs text-muted-foreground">{displayClassNotes(item.notes)}</p>
                           ) : null}
                         </div>
                       </div>

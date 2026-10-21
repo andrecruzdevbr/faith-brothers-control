@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   OFFICIAL_SCHEDULE_EXPECTATIONS,
+  displayClassNotes,
   filterClassSchedules,
   findScheduleSlot,
   formatStartTime,
   groupClassSchedulesByDay,
   isNogi,
+  persistClassNotes,
   type ClassScheduleRow,
 } from "@/lib/class-schedules";
 
@@ -65,6 +67,13 @@ describe("official class schedules", () => {
     expect(filterClassSchedules(rows, { audience: "infantil" })).toHaveLength(6);
     expect(filterClassSchedules(rows, { modality: "nogi" })).toHaveLength(2);
     expect(filterClassSchedules(rows, { audience: "feminino" })).toHaveLength(2);
+  });
+
+  it("hides official_v1 from the board without dropping it on save", () => {
+    expect(displayClassNotes("official_v1")).toBe("");
+    expect(displayClassNotes("Turma experimental")).toBe("Turma experimental");
+    expect(persistClassNotes("official_v1", "")).toBe("official_v1");
+    expect(persistClassNotes("official_v1", "Observação do professor")).toBe("Observação do professor");
   });
 
   it("groups by weekday with sorted times", () => {

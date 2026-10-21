@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { Medal } from "lucide-react";
+import { QueryLoadError } from "@/components/QueryLoadError";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRanking } from "@/hooks/useQueries";
 
@@ -16,7 +17,7 @@ function getInitials(name: string) {
 }
 
 const Ranking = () => {
-  const { data: ranking, isLoading } = useRanking();
+  const { data: ranking, isLoading, isError, error, refetch } = useRanking();
 
   if (isLoading) {
     return (
@@ -27,6 +28,18 @@ const Ranking = () => {
         </div>
         <Skeleton className="h-96 rounded-xl" />
       </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <QueryLoadError
+        title="RANKING"
+        message={error instanceof Error ? error.message : "Erro ao carregar o ranking."}
+        onRetry={() => {
+          void refetch();
+        }}
+      />
     );
   }
 

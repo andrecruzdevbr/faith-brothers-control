@@ -9,13 +9,13 @@ import {
   XCircle,
   Loader2,
   MessageSquare,
-  AlertCircle,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { QueryLoadError } from "@/components/QueryLoadError";
 import { isFullAcademy, useAcademySettings, useAcademyId } from "@/hooks/useQueries";
 import { callEdgeFunction, formatDateBR } from "@/lib/api";
 import { formatWhatsapp } from "@/lib/whatsapp-auth";
@@ -62,7 +62,7 @@ const Configuracoes = () => {
   const { toast } = useToast();
   const { isAdmin, isAcademyLimited } = useAuth();
   const basicOnly = isAcademyLimited && !isAdmin;
-  const { data: settings, isLoading, isError, error } = useAcademySettings({ basicOnly });
+  const { data: settings, isLoading, isError, error, refetch } = useAcademySettings({ basicOnly });
   const { data: academyId } = useAcademyId();
 
   const [testNumber, setTestNumber] = useState("");
@@ -72,6 +72,9 @@ const Configuracoes = () => {
   const {
     data: messages,
     isLoading: messagesLoading,
+    isError: messagesError,
+    error: messagesErr,
+    refetch: refetchMessages,
   } = useQuery({
     queryKey: ["whatsapp-messages", academyId],
     enabled: !!academyId && !basicOnly,
@@ -131,13 +134,13 @@ const Configuracoes = () => {
 
   if (isError) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-2xl md:text-3xl font-display font-bold tracking-wider">CONFIGURAÇÕES</h1>
-        <div className="flex items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-5 text-destructive">
-          <AlertCircle className="h-5 w-5 shrink-0" />
-          <p className="text-sm">{error instanceof Error ? error.message : "Erro ao carregar configurações."}</p>
-        </div>
-      </div>
+      <QueryLoadError
+        title="CONFIGURAÇÕES"
+        message={error instanceof Error ? error.message : "Erro ao carregar configurações e regras de cobrança."}
+        onRetry={() => {
+          void refetch();
+        }}
+      />
     );
   }
 
@@ -320,6 +323,16 @@ const Configuracoes = () => {
                 {[1, 2, 3, 4].map((i) => (
                   <Skeleton key={i} className="h-16 rounded-lg" />
                 ))}
+              </div>
+            ) : messagesError ? (
+              <div className="p-5">
+                <QueryLoadError
+                  compact
+                  message={messagesErr instanceof Error ? messagesErr.message : "Erro ao carregar o histórico de WhatsApp."}
+                  onRetry={() => {
+                    void refetchMessages();
+                  }}
+                />
               </div>
             ) : !messages?.length ? (
               <p className="p-8 text-sm text-muted-foreground text-center">Nenhuma mensagem registrada.</p>
