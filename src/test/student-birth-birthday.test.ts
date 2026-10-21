@@ -74,7 +74,7 @@ describe("birthday WhatsApp automation", () => {
   });
 
   it("queues birthday for active student once and skips duplicate year", async () => {
-    const queueWhatsAppFn = vi.fn(async () => ({
+    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string }) => ({
       messageId: "msg-bday-1",
       sent: false,
       skipped: true,

@@ -1687,6 +1687,15 @@ export type Database = {
         Returns: string
       }
       record_attendance_by_token: { Args: { _token: string }; Returns: Json }
+      get_recent_belt_changes: {
+        Args: { _limit?: number }
+        Returns: {
+          full_name: string
+          belt: string
+          degrees: number
+          changed_at: string
+        }[]
+      }
       register_family_wizard_atomic: {
         Args: {
           _academy_id: string

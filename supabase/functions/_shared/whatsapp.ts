@@ -20,7 +20,35 @@ export type WhatsAppMessageType =
   | "contract_approved";
 
 const EVOLUTION_FETCH_TIMEOUT_MS = 15_000;
-const STUCK_PROCESSING_MS = 2 * 60_000;
+export const STUCK_PROCESSING_MS = 2 * 60_000;
+
+export type StuckWhatsAppAction = "mark_sent" | "reclaim_pending" | "leave";
+
+/**
+ * Stuck "processing" rows: if Evolution already returned an external id,
+ * mark sent (avoid double send after crash). Otherwise reclaim to pending.
+ */
+export function resolveStuckWhatsAppAction(
+  msg: {
+    status: string;
+    updated_at?: string | null;
+    external_id?: string | null;
+  },
+  now = new Date(),
+  stuckMs = STUCK_PROCESSING_MS,
+): StuckWhatsAppAction {
+  if (msg.status !== "processing") return "leave";
+  const updatedAtMs = msg.updated_at ? Date.parse(msg.updated_at) : NaN;
+  if (!Number.isFinite(updatedAtMs) || now.getTime() - updatedAtMs < stuckMs) {
+    return "leave";
+  }
+  if (msg.external_id) return "mark_sent";
+  return "reclaim_pending";
+}
+
+export function isClaimableWhatsAppStatus(status: string): boolean {
+  return status === "pending" || status === "failed";
+}
 
 async function fetchWithTimeout(
   url: string,
@@ -370,19 +398,61 @@ export async function processWhatsAppMessageById(
   }
 }
 
-export async function processPendingMessages(supabase: SupabaseClient, limit = 20): Promise<number> {
-  const stuckBefore = new Date(Date.now() - STUCK_PROCESSING_MS).toISOString();
+export type ProcessPendingMessagesOptions = {
+  limit?: number;
+  now?: () => Date;
+  stuckMs?: number;
+  sendFn?: (
+    recipient: string,
+    text: string,
+  ) => Promise<SendViaEvolutionResult>;
+};
 
-  // Reclaim messages stuck in processing (Edge timeout / unreachable Evolution).
-  await supabase
+export async function processPendingMessages(
+  supabase: SupabaseClient,
+  limitOrOptions: number | ProcessPendingMessagesOptions = 20,
+): Promise<number> {
+  const options: ProcessPendingMessagesOptions =
+    typeof limitOrOptions === "number" ? { limit: limitOrOptions } : limitOrOptions;
+  const limit = options.limit ?? 20;
+  const nowFn = options.now ?? (() => new Date());
+  const stuckMs = options.stuckMs ?? STUCK_PROCESSING_MS;
+  const sendFn = options.sendFn ?? sendViaEvolution;
+  const now = nowFn();
+  const stuckBefore = new Date(now.getTime() - stuckMs).toISOString();
+
+  const { data: stuckRows } = await supabase
     .from("whatsapp_messages")
-    .update({
-      status: "pending",
-      error_message: "reclaimed_stuck_processing",
-      updated_at: new Date().toISOString(),
-    })
+    .select("id, status, updated_at, external_id, attempts")
     .eq("status", "processing")
-    .lt("created_at", stuckBefore);
+    .lt("updated_at", stuckBefore)
+    .limit(limit);
+
+  for (const stuck of stuckRows ?? []) {
+    const action = resolveStuckWhatsAppAction(stuck, now, stuckMs);
+    if (action === "mark_sent") {
+      await supabase
+        .from("whatsapp_messages")
+        .update({
+          status: "sent",
+          error_message: "recovered_sent_after_timeout",
+          sent_at: now.toISOString(),
+          updated_at: now.toISOString(),
+        })
+        .eq("id", stuck.id)
+        .eq("status", "processing");
+    } else if (action === "reclaim_pending") {
+      await supabase
+        .from("whatsapp_messages")
+        .update({
+          status: "pending",
+          error_message: "reclaimed_stuck_processing",
+          updated_at: now.toISOString(),
+        })
+        .eq("id", stuck.id)
+        .eq("status", "processing");
+    }
+  }
 
   const { data: pending } = await supabase
     .from("whatsapp_messages")
@@ -394,45 +464,88 @@ export async function processPendingMessages(supabase: SupabaseClient, limit = 2
 
   let processed = 0;
   for (const msg of pending ?? []) {
-    await supabase.from("whatsapp_messages").update({ status: "processing" }).eq("id", msg.id);
-    try {
-      const result = await sendViaEvolution(msg.recipient, msg.body);
+    if (!isClaimableWhatsAppStatus(msg.status)) continue;
 
-      if (result.skipped) {
+    const claimAt = nowFn().toISOString();
+    const { data: claimed } = await supabase
+      .from("whatsapp_messages")
+      .update({ status: "processing", updated_at: claimAt })
+      .eq("id", msg.id)
+      .in("status", ["pending", "failed"])
+      .select("id")
+      .maybeSingle();
+    if (!claimed) continue;
+
+    let sendResult: SendViaEvolutionResult | null = null;
+    try {
+      sendResult = await sendFn(msg.recipient, msg.body);
+
+      if (sendResult.skipped) {
         await supabase
           .from("whatsapp_messages")
           .update({
             status: "pending",
-            error_message: result.reason ?? "WHATSAPP_SEND_ENABLED=false",
-            updated_at: new Date().toISOString(),
+            error_message: sendResult.reason ?? "WHATSAPP_SEND_ENABLED=false",
+            updated_at: nowFn().toISOString(),
           })
-          .eq("id", msg.id);
+          .eq("id", msg.id)
+          .eq("status", "processing");
         continue;
       }
 
-      await supabase
+      const confirmAt = nowFn().toISOString();
+      const { data: confirmed, error: confirmError } = await supabase
         .from("whatsapp_messages")
         .update({
-          status: result.ok ? "sent" : "failed",
+          status: sendResult.ok ? "sent" : "failed",
           attempts: (msg.attempts ?? 0) + 1,
-          external_id: result.externalId ?? null,
-          error_message: result.error ?? null,
-          sent_at: result.ok ? new Date().toISOString() : null,
-          updated_at: new Date().toISOString(),
+          external_id: sendResult.externalId ?? null,
+          error_message: sendResult.error ?? null,
+          sent_at: sendResult.ok ? confirmAt : null,
+          updated_at: confirmAt,
         })
-        .eq("id", msg.id);
+        .eq("id", msg.id)
+        .eq("status", "processing")
+        .select("id")
+        .maybeSingle();
+
+      // Provider succeeded but confirmation race lost: keep external_id so reclaim marks sent.
+      if (sendResult.ok && sendResult.externalId && (confirmError || !confirmed)) {
+        await supabase
+          .from("whatsapp_messages")
+          .update({
+            external_id: sendResult.externalId,
+            error_message: "sent_pending_db_confirm",
+            updated_at: nowFn().toISOString(),
+          })
+          .eq("id", msg.id);
+      }
       processed++;
     } catch (error) {
       const message = error instanceof Error ? error.message : "WhatsApp send failed";
-      await supabase
-        .from("whatsapp_messages")
-        .update({
-          status: "failed",
-          attempts: (msg.attempts ?? 0) + 1,
-          error_message: message.slice(0, 300),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", msg.id);
+      // If send already returned ok with external id before throw path, preserve it.
+      if (sendResult?.ok && sendResult.externalId) {
+        await supabase
+          .from("whatsapp_messages")
+          .update({
+            status: "processing",
+            external_id: sendResult.externalId,
+            error_message: "sent_pending_db_confirm",
+            updated_at: nowFn().toISOString(),
+          })
+          .eq("id", msg.id);
+      } else {
+        await supabase
+          .from("whatsapp_messages")
+          .update({
+            status: "failed",
+            attempts: (msg.attempts ?? 0) + 1,
+            error_message: message.slice(0, 300),
+            updated_at: nowFn().toISOString(),
+          })
+          .eq("id", msg.id)
+          .eq("status", "processing");
+      }
       processed++;
     }
   }

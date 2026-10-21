@@ -134,8 +134,6 @@ describe("official veteran catalog", () => {
       (r) => r.plan_kind === "mensal" && r.training_days_per_week === 2,
     )!;
     expect(planCommercialAmount({
-      id: "x",
-      name: "ns",
       monthly_price: ns2.amount,
       billing_mode: "asaas_monthly",
     })).toBe(210);

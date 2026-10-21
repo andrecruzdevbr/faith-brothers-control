@@ -1,10 +1,10 @@
-import { lazy, Suspense } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { lazy, Suspense, useEffect, useRef } from "react";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout } from "@/components/Layout";
-import { AuthProvider } from "@/contexts/AuthContext";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { RoleHomeRedirect } from "@/components/RoleHomeRedirect";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,6 +35,22 @@ const queryClient = new QueryClient({
   },
 });
 
+function SessionCacheReset() {
+  const { session } = useAuth();
+  const queryClient = useQueryClient();
+  const previousUserId = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    const userId = session?.user?.id ?? null;
+    if (previousUserId.current !== undefined && previousUserId.current !== userId) {
+      queryClient.clear();
+    }
+    previousUserId.current = userId;
+  }, [session?.user?.id, queryClient]);
+
+  return null;
+}
+
 function PageLoader() {
   return (
     <div className="p-6 space-y-4">
@@ -49,6 +65,7 @@ function PageLoader() {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
+      <SessionCacheReset />
       <TooltipProvider>
         <Toaster />
         <BrowserRouter>

@@ -32,6 +32,7 @@ export type QueueWhatsAppFn = (params: {
   recipient: string;
   body: string;
   messageType: "payment_confirmation";
+  idempotencyKey?: string | null;
   sendImmediately?: boolean;
 }) => Promise<{ messageId: string; sent: boolean }>;
 
@@ -63,19 +64,50 @@ export function validateAsaasWebhookToken(
   return accessToken === expectedToken;
 }
 
+export const PAYMENT_REFUND_EVENTS = [
+  "PAYMENT_REFUNDED",
+  "PAYMENT_CHARGEBACK_REQUESTED",
+] as const;
+
+export function isPaymentRefundEvent(event: string | undefined): boolean {
+  return PAYMENT_REFUND_EVENTS.includes(event as (typeof PAYMENT_REFUND_EVENTS)[number]);
+}
+
+/**
+ * Late overdue/deleted events must not revert a settled charge.
+ * Refunds/chargebacks may leave `pago` only toward `cancelado`.
+ */
+export function billingStatusTransition(
+  currentStatus: string | null | undefined,
+  event: string,
+): "pago" | "vencido" | "cancelado" | null {
+  if (isPaymentPaidEvent(event)) {
+    if (currentStatus === "pago") return null;
+    return "pago";
+  }
+  if (isPaymentRefundEvent(event)) {
+    if (currentStatus !== "pago") return null;
+    return "cancelado";
+  }
+  if (event === "PAYMENT_OVERDUE") {
+    if (currentStatus === "pago" || currentStatus === "cancelado") return null;
+    return "vencido";
+  }
+  if (event === "PAYMENT_DELETED") {
+    if (currentStatus === "pago") return null;
+    return "cancelado";
+  }
+  return null;
+}
+
 export function buildBillingUpdates(
   event: string,
   paidAt: string,
 ): Record<string, string | null> | null {
-  if (isPaymentPaidEvent(event)) {
-    return { status: "pago", paid_at: paidAt };
-  }
-  if (event === "PAYMENT_OVERDUE") {
-    return { status: "vencido" };
-  }
-  if (event === "PAYMENT_DELETED") {
-    return { status: "cancelado" };
-  }
+  if (isPaymentPaidEvent(event)) return { status: "pago", paid_at: paidAt };
+  if (isPaymentRefundEvent(event)) return { status: "cancelado" };
+  if (event === "PAYMENT_OVERDUE") return { status: "vencido" };
+  if (event === "PAYMENT_DELETED") return { status: "cancelado" };
   return null;
 }
 
@@ -160,7 +192,9 @@ export async function processAsaasWebhook(params: {
 
   let query = supabase.from("billings").update(updates).eq("asaas_payment_id", payment.id);
 
-  if (isPaymentPaidEvent(event)) {
+  if (isPaymentRefundEvent(event)) {
+    query = query.eq("status", "pago");
+  } else if (isPaymentPaidEvent(event) || event === "PAYMENT_OVERDUE" || event === "PAYMENT_DELETED") {
     query = query.neq("status", "pago");
   }
 

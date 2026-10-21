@@ -46,7 +46,11 @@ describe("register-student WhatsApp confirmation", () => {
   });
 
   it("queues WhatsApp after successful registration path", async () => {
-    const queueWhatsAppFn = vi.fn(async () => ({
+    const queueWhatsAppFn = vi.fn(async (_params: {
+      recipient: string;
+      messageType: string;
+      body: string;
+    }) => ({
       messageId: "msg-1",
       sent: false,
       skipped: true,

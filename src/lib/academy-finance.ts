@@ -1,5 +1,12 @@
-export const ASAAS_WEBHOOK_URL =
-  "https://wojqjxtaqjasnfhbotxi.supabase.co/functions/v1/asaas-webhook";
+const supabaseUrl = (
+  import.meta.env.VITE_SUPABASE_URL ??
+  (import.meta.env.VITE_SUPABASE_PROJECT_ID
+    ? `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co`
+    : "")
+).replace(/\/+$/, "");
+
+/** Webhook URL follows the current frontend Supabase project (staging or production). */
+export const ASAAS_WEBHOOK_URL = `${supabaseUrl}/functions/v1/asaas-webhook`;
 
 export type AcademyFinanceDisplay = {
   finance_contact_name?: string | null;

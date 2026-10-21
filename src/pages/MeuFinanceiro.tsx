@@ -16,24 +16,13 @@ import { StudentPlanEditor } from "@/components/StudentPlanEditor";
 import { StudentContractOverview } from "@/components/StudentContractOverview";
 import { useMyBillings } from "@/hooks/useQueries";
 import { formatCurrency, formatDateBR } from "@/lib/api";
+import { deriveOverallStatus } from "@/lib/finance-indicators";
 import {
   formatPendingPlanChangeLabel,
   formatPlanCurrentLabel,
 } from "@/lib/plans";
 import { friendlyBillingStatusLabel } from "@/lib/student-plan-situation";
 import { supabase } from "@/integrations/supabase/client";
-import type { Enums } from "@/integrations/supabase/types";
-
-function deriveOverallStatus(billings: { status: Enums<"billing_status">; due_date: string }[]) {
-  if (billings.length === 0) return "sem_cobranca" as const;
-  const latest = billings[0];
-  if (latest.status === "vencido") return "atrasado" as const;
-  if (latest.status === "pago") return "em_dia" as const;
-  const days = Math.ceil((new Date(latest.due_date + "T12:00:00").getTime() - Date.now()) / 86400000);
-  if (days >= 0 && days <= 7) return "proximo" as const;
-  if (["pendente", "gerado", "enviado_whatsapp"].includes(latest.status)) return "pendente" as const;
-  return "em_dia" as const;
-}
 
 const statusConfig = {
   em_dia: { label: "Em Dia", icon: CheckCircle, class: "text-success bg-success/10 border-success/30", desc: "Sua situação financeira está em dia." },

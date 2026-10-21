@@ -4,12 +4,14 @@ import {
   Users, UserCheck, UserX, DollarSign, AlertTriangle, CalendarClock,
   GraduationCap, UserPlus, Trophy, TrendingUp,
 } from "lucide-react";
+import { QueryLoadError } from "@/components/QueryLoadError";
 import { StatsCard } from "@/components/StatsCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAcademyId, useDashboardStats, useRanking } from "@/hooks/useQueries";
 import { formatCurrency, formatDateBR } from "@/lib/api";
+import { resolveDashboardView } from "@/lib/dashboard-view";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar,
 } from "recharts";
@@ -29,8 +31,26 @@ function getInitials(name: string) {
 
 const Dashboard = () => {
   const { data: academyId } = useAcademyId();
-  const { data: stats, isLoading: loadingStats } = useDashboardStats();
+  const {
+    data: stats,
+    isLoading: loadingStats,
+    isError: statsError,
+    error: statsErr,
+    refetch: refetchStats,
+  } = useDashboardStats();
   const { data: ranking, isLoading: loadingRanking } = useRanking();
+  const statsView = resolveDashboardView({
+    isLoading: loadingStats,
+    isError: statsError,
+    error: statsErr,
+    stats: stats
+      ? {
+          totalStudents: stats.totalStudents,
+          activeContracts: stats.activeContracts,
+          monthRevenue: stats.monthRevenue,
+        }
+      : null,
+  });
 
   const { data: revenueChart, isLoading: loadingRevenue } = useQuery({
     queryKey: ["dashboard-revenue-chart", academyId],
@@ -158,7 +178,7 @@ const Dashboard = () => {
     baixo: { bg: "bg-success/10 border-success/30", text: "text-success", label: "Baixo" },
   };
 
-  if (loadingStats) {
+  if (statsView.status === "loading") {
     return (
       <div className="space-y-6">
         <Skeleton className="h-10 w-64" />
@@ -170,6 +190,18 @@ const Dashboard = () => {
           <Skeleton className="h-72 rounded-xl" />
         </div>
       </div>
+    );
+  }
+
+  if (statsView.status === "error") {
+    return (
+      <QueryLoadError
+        title="DASHBOARD"
+        message={statsView.message}
+        onRetry={() => {
+          void refetchStats();
+        }}
+      />
     );
   }
 

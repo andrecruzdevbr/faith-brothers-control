@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  useAcademyId, useBillings, usePlans, useDashboardStats, useAcademySettings,
+  useAcademyId, useBillings, usePlans, useDashboardStats, useAcademySettings, isFullAcademy,
 } from "@/hooks/useQueries";
 import { callEdgeFunction, formatCurrency, formatDateBR } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -396,7 +396,7 @@ const Financeiro = () => {
     }
   };
 
-  const academy = settings?.academy;
+  const academy = isFullAcademy(settings?.academy) ? settings.academy : null;
   const billingSettings = settings?.billing;
   const loading = loadingStats || loadingExtras;
 

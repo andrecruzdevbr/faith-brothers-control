@@ -17,6 +17,7 @@ import { getHomePath } from "@/lib/access";
 import { isValidBrazilianWhatsapp, normalizeWhatsapp } from "@/lib/whatsapp-auth";
 import { isValidTaxId, normalizeTaxId } from "@/lib/tax-id";
 import { type PlanOption } from "@/lib/plans";
+import { isPublicFamilySignupEnabled } from "@/lib/family-catalog-flags";
 import { isMinor, validateStudentBirthFields } from "@/lib/student-age";
 import {
   buildCoverageMonths,
@@ -182,8 +183,8 @@ const Cadastro = () => {
   const installmentsWatch = form.watch("installments");
   const showGuardianRequired = !!birthDateWatch && isMinor(birthDateWatch);
 
-  /** Show Individual|Familiar as soon as any public academy has the flag (do not wait for academy select). */
-  const familyPlansAvailable = academies.some((a) => !!a.family_plans_enabled);
+  /** Public family signup needs both commercial flags (family + prepaid catalog). */
+  const familyPlansAvailable = academies.some((a) => isPublicFamilySignupEnabled(a));
   const selectedPlan = plans.find((p) => p.id === selectedPlanId);
   const paymentMethodOptions = useMemo(
     () => paymentMethodsForNewStudentPlan(selectedPlan),
@@ -697,13 +698,13 @@ const Cadastro = () => {
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="1, 2, 3 ou 5 dias" />
+                            <SelectValue placeholder="2, 3 ou 5 dias" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           {VETERAN_DAY_OPTIONS.map((days) => (
                             <SelectItem key={days} value={String(days)}>
-                              {days === 1 ? "1 dia por semana" : `${days} dias por semana`}
+                              {`${days} dias por semana`}
                             </SelectItem>
                           ))}
                         </SelectContent>

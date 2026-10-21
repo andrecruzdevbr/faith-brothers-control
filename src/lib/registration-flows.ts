@@ -291,12 +291,13 @@ export function listConfiguredVeteranPeriods(params: {
   plans: PlanOption[];
   trainingDays: number | null | undefined;
 }): BillingPeriodChoice[] {
-  if (!validateVeteranTrainingDays(params.trainingDays)) return [];
+  const trainingDays = params.trainingDays;
+  if (!validateVeteranTrainingDays(trainingDays)) return [];
   return BILLING_PERIOD_ORDER.filter((period) =>
     Boolean(
       matchVeteranPlan({
         plans: params.plans,
-        trainingDays: params.trainingDays,
+        trainingDays,
         period,
       }),
     ),

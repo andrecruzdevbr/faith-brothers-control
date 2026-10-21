@@ -23,9 +23,10 @@ describe("academy finance display", () => {
     expect(formatAsaasEnvironmentLabel(null)).toBe("Asaas (via Secrets)");
   });
 
-  it("documents production webhook URL without tokens", () => {
+  it("documents webhook URL from env without tokens or a hardcoded production ref", () => {
     expect(ASAAS_WEBHOOK_URL).toContain("asaas-webhook");
     expect(ASAAS_WEBHOOK_URL).not.toMatch(/api[_-]?key/i);
     expect(ASAAS_WEBHOOK_URL).not.toContain("$");
+    expect(ASAAS_WEBHOOK_URL).not.toContain("wojqjxtaqjasnfhbotxi");
   });
 });

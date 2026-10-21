@@ -1,6 +1,31 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { PAGE_SIZE } from "@/lib/constants";
+import { isMissingBeltChangesRpc } from "@/lib/belt-events";
+import { throwIfQueryFailed } from "@/lib/dashboard-view";
+import {
+  addDaysIso,
+  countDelinquentStudents,
+  isDueSoon,
+  sumReceipts,
+} from "@/lib/finance-indicators";
+
+async function fetchAllRows<T>(
+  load: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const pageSize = 1000;
+  const rows: T[] = [];
+  for (let page = 0; page < 20; page++) {
+    const from = page * pageSize;
+    const { data, error } = await load(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const batch = data ?? [];
+    rows.push(...batch);
+    if (batch.length < pageSize) break;
+  }
+  return rows;
+}
 
 export function useAcademyId() {
   return useQuery({
@@ -68,6 +93,61 @@ export function useBillings(page = 1, status?: string) {
       const { data, count, error } = await query;
       if (error) throw error;
       return { billings: data ?? [], total: count ?? 0 };
+    },
+  });
+}
+
+export function useReportBillings() {
+  const { data: academyId } = useAcademyId();
+  return useQuery({
+    queryKey: ["report-billings", academyId],
+    enabled: !!academyId,
+    queryFn: async () => {
+      const since = new Date();
+      since.setMonth(since.getMonth() - 5, 1);
+      const sinceIso = since.toISOString().slice(0, 10);
+      const [billings, coveredMonths, contractRows] = await Promise.all([
+        fetchAllRows<{
+          student_id: string;
+          status: string;
+          amount: number;
+          reference_month: string;
+        }>((from, to) =>
+          supabase
+            .from("billings")
+            .select("student_id, status, amount, reference_month")
+            .eq("academy_id", academyId!)
+            .order("reference_month", { ascending: false })
+            .range(from, to),
+        ),
+        fetchAllRows<{ student_id: string; reference_month: string }>((from, to) =>
+          supabase
+            .from("student_contract_months")
+            .select("student_id, reference_month")
+            .eq("academy_id", academyId!)
+            .eq("status", "pago")
+            .gte("reference_month", sinceIso)
+            .range(from, to),
+        ),
+        fetchAllRows<{ id: string }>((from, to) =>
+          supabase.from("student_contracts").select("id").eq("academy_id", academyId!).range(from, to),
+        ),
+      ]);
+      const contractPayments: { amount: number; confirmed_at: string }[] = [];
+      for (let index = 0; index < contractRows.length; index += 100) {
+        const slice = contractRows.slice(index, index + 100).map((row) => row.id);
+        const batch = await fetchAllRows<{ amount: number; confirmed_at: string }>((from, to) =>
+          supabase
+            .from("contract_payments")
+            .select("amount, confirmed_at")
+            .in("contract_id", slice)
+            .eq("action", "confirm")
+            .gte("confirmed_at", `${sinceIso}T00:00:00`)
+            .range(from, to),
+        );
+        contractPayments.push(...batch);
+      }
+      return { billings, coveredMonths, contractPayments, total: billings.length };
     },
   });
 }
@@ -188,54 +268,186 @@ export function useDashboardStats() {
     staleTime: 60_000,
     queryFn: async () => {
       const now = new Date();
+      const today = now.toISOString().slice(0, 10);
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
       const yearStart = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
-      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const dueSoonEnd = addDaysIso(today, 7);
 
       const [
-        { count: totalStudents },
-        { count: activeStudents },
-        { count: inactiveStudents },
-        { count: presentToday },
-        { count: overdueCount },
-        { data: monthBillings },
-        { data: yearBillings },
-        { data: dueSoon },
-        { data: recentStudents },
-        { data: recentGraduations },
-        { count: activeFamilyGroups },
-        { count: activeContracts },
+        totalStudentsRes,
+        activeStudentsRes,
+        inactiveStudentsRes,
+        presentTodayRes,
+        openBillings,
+        monthBillings,
+        yearBillings,
+        dueSoonRows,
+        recentStudentsRes,
+        graduationsRes,
+        activeFamilyGroupsRes,
+        activeContractsRes,
+        contractRows,
+        coveredMonths,
       ] = await Promise.all([
         supabase.from("students").select("id", { count: "exact", head: true }).eq("academy_id", academyId!),
         supabase.from("students").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).eq("status", "ativo"),
         supabase.from("students").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).eq("status", "inativo"),
         supabase.from("attendances").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).gte("checked_in_at", todayStart.toISOString()),
-        supabase.from("billings").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).eq("status", "vencido"),
-        supabase.from("billings").select("amount").eq("academy_id", academyId!).eq("status", "pago").gte("reference_month", monthStart),
-        supabase.from("billings").select("amount").eq("academy_id", academyId!).eq("status", "pago").gte("reference_month", yearStart),
-        supabase.from("billings").select("*, students(full_name)").eq("academy_id", academyId!).in("status", ["pendente", "gerado", "enviado_whatsapp"]).gte("due_date", monthStart).lte("due_date", new Date(now.getTime() + 7 * 86400000).toISOString().slice(0, 10)).limit(10),
+        fetchAllRows<{ student_id: string; status: string; due_date: string }>((from, to) =>
+          supabase
+            .from("billings")
+            .select("student_id, status, due_date")
+            .eq("academy_id", academyId!)
+            .in("status", ["pendente", "gerado", "enviado_whatsapp", "vencido"])
+            .range(from, to),
+        ),
+        fetchAllRows<{ student_id: string; amount: number; reference_month: string }>((from, to) =>
+          supabase
+            .from("billings")
+            .select("student_id, amount, reference_month")
+            .eq("academy_id", academyId!)
+            .eq("status", "pago")
+            .gte("reference_month", monthStart)
+            .range(from, to),
+        ),
+        fetchAllRows<{ student_id: string; amount: number; reference_month: string }>((from, to) =>
+          supabase
+            .from("billings")
+            .select("student_id, amount, reference_month")
+            .eq("academy_id", academyId!)
+            .eq("status", "pago")
+            .gte("reference_month", yearStart)
+            .range(from, to),
+        ),
+        fetchAllRows<{ id: string; due_date: string; status: string; amount: number; students: { full_name: string } | null }>((from, to) =>
+          supabase
+            .from("billings")
+            .select("id, due_date, status, amount, students(full_name)")
+            .eq("academy_id", academyId!)
+            .in("status", ["pendente", "gerado", "enviado_whatsapp"])
+            .gte("due_date", today)
+            .lte("due_date", dueSoonEnd)
+            .order("due_date")
+            .range(from, to),
+        ),
         supabase.from("students").select("full_name, created_at").eq("academy_id", academyId!).order("created_at", { ascending: false }).limit(5),
-        supabase.from("students").select("full_name, belt, degrees, updated_at").eq("academy_id", academyId!).order("updated_at", { ascending: false }).limit(5),
+        supabase.rpc("get_recent_belt_changes", { _limit: 8 }),
         supabase.from("family_groups").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).eq("status", "ativo"),
-        supabase.from("student_contracts").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).eq("contract_status", "ativo"),
+        supabase.from("student_contracts").select("id", { count: "exact", head: true }).eq("academy_id", academyId!).eq("contract_status", "ativo").gte("ends_on", today),
+        fetchAllRows<{ id: string }>((from, to) =>
+          supabase.from("student_contracts").select("id").eq("academy_id", academyId!).range(from, to),
+        ),
+        fetchAllRows<{ student_id: string; reference_month: string }>((from, to) =>
+          supabase
+            .from("student_contract_months")
+            .select("student_id, reference_month")
+            .eq("academy_id", academyId!)
+            .eq("status", "pago")
+            .gte("reference_month", yearStart)
+            .range(from, to),
+        ),
       ]);
 
-      const monthRevenue = (monthBillings ?? []).reduce((s, b) => s + Number(b.amount), 0);
-      const yearRevenue = (yearBillings ?? []).reduce((s, b) => s + Number(b.amount), 0);
+      throwIfQueryFailed([
+        totalStudentsRes,
+        activeStudentsRes,
+        inactiveStudentsRes,
+        presentTodayRes,
+        recentStudentsRes,
+        activeFamilyGroupsRes,
+        activeContractsRes,
+      ]);
+      // Belt history starts empty until the audit migration is applied / events exist.
+      // Missing RPC must not invent graduations or break the whole dashboard.
+      let recentGraduations: {
+        full_name: string;
+        belt: string;
+        degrees: number;
+        updated_at: string;
+      }[] = [];
+      if (graduationsRes.error) {
+        if (!isMissingBeltChangesRpc(graduationsRes.error)) {
+          throw new Error(graduationsRes.error.message);
+        }
+      } else {
+        recentGraduations = (graduationsRes.data ?? []).map((row) => ({
+          full_name: row.full_name,
+          belt: row.belt,
+          degrees: row.degrees,
+          updated_at: row.changed_at,
+        }));
+      }
+
+      const contractIds = contractRows.map((row) => row.id);
+      const confirmedPayments: { amount: number; confirmed_at: string }[] = [];
+      for (let index = 0; index < contractIds.length; index += 100) {
+        const slice = contractIds.slice(index, index + 100);
+        const batch = await fetchAllRows<{ amount: number; confirmed_at: string }>((from, to) =>
+          supabase
+            .from("contract_payments")
+            .select("amount, confirmed_at")
+            .in("contract_id", slice)
+            .eq("action", "confirm")
+            .gte("confirmed_at", `${yearStart}T00:00:00`)
+            .range(from, to),
+        );
+        confirmedPayments.push(...batch);
+      }
+      const monthPayments = confirmedPayments.filter((row) => row.confirmed_at >= `${monthStart}T00:00:00`);
+      const yearPayments = confirmedPayments;
+
+      const covered = (coveredMonths ?? []).map((row) => ({
+        studentId: row.student_id,
+        referenceMonth: row.reference_month,
+      }));
+      const monthRevenue = sumReceipts({
+        billings: monthBillings.map((row) => ({
+          studentId: row.student_id,
+          referenceMonth: row.reference_month,
+          amount: Number(row.amount),
+        })),
+        coveredMonths: covered.filter((row) => row.referenceMonth >= monthStart),
+        contractPayments: monthPayments,
+      });
+      const yearRevenue = sumReceipts({
+        billings: yearBillings.map((row) => ({
+          studentId: row.student_id,
+          referenceMonth: row.reference_month,
+          amount: Number(row.amount),
+        })),
+        coveredMonths: covered,
+        contractPayments: yearPayments,
+      });
+
+      const dueSoon = dueSoonRows.filter((row) =>
+        isDueSoon(
+          { studentId: "", status: row.status, dueDate: row.due_date },
+          today,
+        ),
+      );
 
       return {
-        totalStudents: totalStudents ?? 0,
-        activeStudents: activeStudents ?? 0,
-        inactiveStudents: inactiveStudents ?? 0,
-        presentToday: presentToday ?? 0,
-        overdueCount: overdueCount ?? 0,
-        activeFamilyGroups: activeFamilyGroups ?? 0,
-        activeContracts: activeContracts ?? 0,
+        totalStudents: totalStudentsRes.count ?? 0,
+        activeStudents: activeStudentsRes.count ?? 0,
+        inactiveStudents: inactiveStudentsRes.count ?? 0,
+        presentToday: presentTodayRes.count ?? 0,
+        overdueCount: countDelinquentStudents(
+          openBillings.map((row) => ({
+            studentId: row.student_id,
+            status: row.status,
+            dueDate: row.due_date,
+          })),
+          today,
+        ),
+        activeFamilyGroups: activeFamilyGroupsRes.count ?? 0,
+        activeContracts: activeContractsRes.count ?? 0,
         monthRevenue,
         yearRevenue,
-        dueSoon: dueSoon ?? [],
-        recentStudents: recentStudents ?? [],
-        recentGraduations: recentGraduations ?? [],
+        dueSoon,
+        recentStudents: recentStudentsRes.data ?? [],
+        recentGraduations,
       };
     },
   });
@@ -256,11 +468,13 @@ export function useRanking() {
 
       if (error) throw error;
 
-      const { data: attendances } = await supabase
+      const { data: attendances, error: attendanceError } = await supabase
         .from("attendances")
         .select("student_id")
         .eq("academy_id", academyId!)
         .gte("checked_in_at", monthAgo);
+
+      if (attendanceError) throw new Error(attendanceError.message);
 
       const counts = new Map<string, number>();
       for (const a of attendances ?? []) {
@@ -273,6 +487,15 @@ export function useRanking() {
         .slice(0, 20);
     },
   });
+}
+
+type AcademyRow = Database["public"]["Tables"]["academies"]["Row"];
+type BasicAcademy = Database["public"]["Functions"]["get_my_academy_basic_info"]["Returns"][number];
+
+export function isFullAcademy(
+  academy: AcademyRow | BasicAcademy | null | undefined,
+): academy is AcademyRow {
+  return !!academy && "bank_name" in academy;
 }
 
 export function useAcademySettings(options?: { basicOnly?: boolean }) {

@@ -44,6 +44,70 @@ export function shouldCreateAsaasPayment(existing: Record<string, unknown> | nul
   return existing === null;
 }
 
+/** Marker written on the local claim row before any Asaas create call. */
+export const BILLING_GENERATION_CLAIM_MARKER = "generation_claim";
+
+/** Another worker owns a claim without payment until this age. */
+export const BILLING_GENERATION_STALE_MS = 120_000;
+
+export type BillingGenerationSnapshot = {
+  id: string;
+  status: string;
+  asaas_payment_id?: string | null;
+  updated_at?: string | null;
+  last_error?: string | null;
+};
+
+export type BillingGenerationDecision =
+  | { action: "create_claim" }
+  | { action: "complete_claimed"; billingId: string }
+  | { action: "reprocess_failed"; billingId: string }
+  | { action: "already_exists"; billingId: string }
+  | { action: "in_progress"; billingId: string };
+
+/**
+ * Decide work for (student, month) BEFORE calling Asaas create.
+ * Local UNIQUE claim must win first so concurrent workers cannot both POST payments.
+ */
+export function decideBillingGenerationAction(
+  existing: BillingGenerationSnapshot | null,
+  now = new Date(),
+  staleMs = BILLING_GENERATION_STALE_MS,
+): BillingGenerationDecision {
+  if (!existing) return { action: "create_claim" };
+
+  if (existing.status === "pago") {
+    return { action: "already_exists", billingId: existing.id };
+  }
+
+  if (existing.status === "cancelado" || existing.status === "falhou") {
+    return { action: "reprocess_failed", billingId: existing.id };
+  }
+
+  if (existing.asaas_payment_id) {
+    return { action: "already_exists", billingId: existing.id };
+  }
+
+  const updatedAtMs = existing.updated_at ? Date.parse(existing.updated_at) : NaN;
+  const ageMs = Number.isFinite(updatedAtMs) ? now.getTime() - updatedAtMs : Number.POSITIVE_INFINITY;
+  const isClaim =
+    existing.last_error === BILLING_GENERATION_CLAIM_MARKER || existing.status === "pendente";
+
+  if (isClaim && ageMs < staleMs) {
+    return { action: "in_progress", billingId: existing.id };
+  }
+
+  return { action: "complete_claimed", billingId: existing.id };
+}
+
+export function isBillingUniqueViolation(
+  error: { code?: string; message?: string } | null | undefined,
+): boolean {
+  if (!error) return false;
+  if (error.code === "23505") return true;
+  return /duplicate key|unique constraint/i.test(error.message ?? "");
+}
+
 export function shouldUpdateAsaasCustomer(existingCpfCnpj: string, nextCpfCnpj: string): boolean {
   return !existingCpfCnpj || existingCpfCnpj !== nextCpfCnpj;
 }

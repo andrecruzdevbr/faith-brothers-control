@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatCurrency, formatDateBR } from "@/lib/api";
+import { selectCurrentContract } from "@/lib/contracts";
 import { buildStudentPlanSituationView } from "@/lib/student-plan-situation";
 import { maskTaxId } from "@/lib/prepaid-contracts";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,7 +27,7 @@ function formatPeriodLabel(period: string | null): string | null {
 }
 
 export function StudentContractOverview({ studentId }: Props) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["student-plan-situation", studentId],
     enabled: !!studentId,
     queryFn: async () => {
@@ -55,12 +56,7 @@ export function StudentContractOverview({ studentId }: Props) {
         paid_at: string | null;
       }>;
 
-      const contractId =
-        monthRows.find((m) => m.status === "pago")?.contract_id ??
-        monthRows[0]?.contract_id ??
-        null;
-
-      let contract: {
+      type ContractRow = {
         id: string;
         starts_on: string;
         ends_on: string;
@@ -74,18 +70,38 @@ export function StudentContractOverview({ studentId }: Props) {
         family_group_id: string | null;
         student_id: string | null;
         plans?: { name?: string | null; plan_kind?: string | null; training_days_per_week?: number | null } | null;
-      } | null = null;
+      };
 
-      if (contractId) {
-        const { data: c } = await supabase
+      const monthContractIds = [...new Set(monthRows.map((m) => m.contract_id).filter(Boolean))];
+      const { data: ownedContracts } = await supabase
+        .from("student_contracts")
+        .select(
+          "id, starts_on, ends_on, weekly_frequency, total_amount, payment_method, installments, contract_status, payment_status, duration_months, family_group_id, student_id, plans(name, plan_kind, training_days_per_week)",
+        )
+        .eq("student_id", studentId);
+
+      let linkedContracts: ContractRow[] = [];
+      if (monthContractIds.length) {
+        const { data: byMonth } = await supabase
           .from("student_contracts")
           .select(
             "id, starts_on, ends_on, weekly_frequency, total_amount, payment_method, installments, contract_status, payment_status, duration_months, family_group_id, student_id, plans(name, plan_kind, training_days_per_week)",
           )
-          .eq("id", contractId)
-          .maybeSingle();
-        contract = c as typeof contract;
+          .in("id", monthContractIds);
+        linkedContracts = (byMonth ?? []) as ContractRow[];
       }
+
+      const byId = new Map<string, ContractRow>();
+      for (const row of [...((ownedContracts ?? []) as ContractRow[]), ...linkedContracts]) {
+        byId.set(row.id, row);
+      }
+      const contracts = Array.from(byId.values());
+      const today = new Date().toISOString().slice(0, 10);
+      const contract =
+        selectCurrentContract(contracts, today) ??
+        contracts.find((c) => c.id === monthRows.find((m) => m.status === "pago")?.contract_id) ??
+        contracts[0] ??
+        null;
 
       let family: {
         name: string;
@@ -179,6 +195,7 @@ export function StudentContractOverview({ studentId }: Props) {
           status: m.status,
         })),
         latestBillingStatus: latestBilling?.status ?? null,
+        asOf: new Date().toISOString().slice(0, 10),
         isFamilyMember,
         hideFinancialDetails,
       });
@@ -189,6 +206,10 @@ export function StudentContractOverview({ studentId }: Props) {
 
   if (isLoading) {
     return <Skeleton className="h-40 rounded-xl" />;
+  }
+
+  if (isError) {
+    return <p className="text-sm text-destructive">Não foi possível carregar o contrato vigente.</p>;
   }
 
   if (!data?.view) return null;

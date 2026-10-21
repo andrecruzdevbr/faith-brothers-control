@@ -23,6 +23,7 @@ import { BELTS } from "@/lib/constants";
 import { isValidBrazilianWhatsapp, normalizeWhatsapp } from "@/lib/whatsapp-auth";
 import { isValidTaxId, normalizeTaxId } from "@/lib/tax-id";
 import { type PlanOption } from "@/lib/plans";
+import { isPublicFamilySignupEnabled } from "@/lib/family-catalog-flags";
 import { isMinor, validateStudentBirthFields } from "@/lib/student-age";
 import {
   buildCoverageMonths,
@@ -187,12 +188,16 @@ export function AdminNewStudentDialog({ open, onOpenChange, academyId, onCreated
     if (!open || !academyId) return;
     let cancelled = false;
     void (async () => {
-      const { data } = await supabase
-        .from("academies")
-        .select("family_plans_enabled")
-        .eq("id", academyId)
+      const { data, error } = await supabase
+        .from("academy_billing_settings")
+        .select("family_plans_enabled, prepaid_contracts_enabled")
+        .eq("academy_id", academyId)
         .maybeSingle();
-      if (!cancelled) setFamilyEnabled(!!data?.family_plans_enabled);
+      if (error) {
+        if (!cancelled) setFamilyEnabled(false);
+        return;
+      }
+      if (!cancelled) setFamilyEnabled(isPublicFamilySignupEnabled(data));
     })();
     return () => {
       cancelled = true;
@@ -588,13 +593,13 @@ export function AdminNewStudentDialog({ open, onOpenChange, academyId, onCreated
                         <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="1, 2, 3 ou 5 dias" />
+                              <SelectValue placeholder="2, 3 ou 5 dias" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
                             {VETERAN_DAY_OPTIONS.map((days) => (
                               <SelectItem key={days} value={String(days)}>
-                                {days === 1 ? "1 dia por semana" : `${days} dias por semana`}
+                                {`${days} dias por semana`}
                               </SelectItem>
                             ))}
                           </SelectContent>

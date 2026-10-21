@@ -17,6 +17,7 @@ export type FriendlyPlanSituationStatus =
   | "Aguardando pagamento"
   | "Pago"
   | "Pagamento vencido"
+  | "Contrato expirado"
   | "Inativo"
   | "Rejeitado";
 
@@ -60,6 +61,8 @@ export type StudentPlanSituationInput = {
   } | null;
   coverageMonths?: Array<{ reference_month: string; status: string }>;
   latestBillingStatus?: string | null;
+  /** YYYY-MM-DD. When set, a paid contract past ends_on is expired. */
+  asOf?: string | null;
   isFamilyMember?: boolean;
   hideFinancialDetails?: boolean;
 };
@@ -116,6 +119,15 @@ export function resolveFriendlyPlanSituationStatus(
   const hasPaidContract =
     input.contract?.payment_status === "pago" &&
     (input.coverageMonths ?? []).some((m) => m.status === "pago");
+
+  if (
+    input.asOf &&
+    input.contract?.ends_on &&
+    input.contract.contract_status !== "cancelado" &&
+    input.contract.ends_on < input.asOf
+  ) {
+    return "Contrato expirado";
+  }
 
   if (hasPaidContract || (input.status === "ativo" && input.contract?.payment_status === "pago")) {
     return "Ativo";

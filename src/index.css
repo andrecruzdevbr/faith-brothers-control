@@ -22,7 +22,7 @@
     --secondary-foreground: 0 0% 95%;
 
     --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 55%;
+    --muted-foreground: 0 0% 72%;
 
     --accent: 355 87% 41%;
     --accent-foreground: 0 0% 100%;
@@ -69,6 +69,12 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-body);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: hsl(var(--muted-foreground));
+    opacity: 1;
   }
 
   h1, h2, h3, h4, h5, h6 {

@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { useAcademySettings, useAcademyId } from "@/hooks/useQueries";
+import { isFullAcademy, useAcademySettings, useAcademyId } from "@/hooks/useQueries";
 import { callEdgeFunction, formatDateBR } from "@/lib/api";
 import { formatWhatsapp } from "@/lib/whatsapp-auth";
 import { useAuth } from "@/contexts/AuthContext";
@@ -142,6 +142,7 @@ const Configuracoes = () => {
   }
 
   const academy = settings?.academy;
+  const fullAcademy = isFullAcademy(academy) ? academy : null;
   const billing = settings?.billing;
   const cityState = [academy?.city, academy?.state].filter(Boolean).join(" — ");
 
@@ -184,22 +185,22 @@ const Configuracoes = () => {
                 </span>
               </div>
             )}
-            {!basicOnly && academy?.finance_whatsapp && (
+            {!basicOnly && fullAcademy?.finance_whatsapp && (
               <div>
                 <span className="text-muted-foreground">WhatsApp financeiro:</span>{" "}
-                <span className="text-foreground font-medium">{formatWhatsapp(academy.finance_whatsapp)}</span>
+                <span className="text-foreground font-medium">{formatWhatsapp(fullAcademy.finance_whatsapp)}</span>
               </div>
             )}
-            {!basicOnly && academy?.finance_contact_name && (
+            {!basicOnly && fullAcademy?.finance_contact_name && (
               <div>
                 <span className="text-muted-foreground">Contato financeiro:</span>{" "}
-                <span className="text-foreground font-medium">{academy.finance_contact_name}</span>
+                <span className="text-foreground font-medium">{fullAcademy.finance_contact_name}</span>
               </div>
             )}
-            {!basicOnly && academy?.finance_document_display && (
+            {!basicOnly && fullAcademy?.finance_document_display && (
               <div>
                 <span className="text-muted-foreground">CNPJ/MEI:</span>{" "}
-                <span className="text-foreground font-medium">{academy.finance_document_display}</span>
+                <span className="text-foreground font-medium">{fullAcademy.finance_document_display}</span>
               </div>
             )}
           </div>
@@ -225,22 +226,22 @@ const Configuracoes = () => {
                   </span>
                 </div>
               )}
-              {academy?.bank_name && (
+              {fullAcademy?.bank_name && (
                 <div>
                   <span className="text-muted-foreground">Banco:</span>{" "}
                   <span className="text-foreground font-medium">
-                    {academy.bank_name}
-                    {academy.bank_code ? ` (${academy.bank_code})` : ""}
+                    {fullAcademy.bank_name}
+                    {fullAcademy.bank_code ? ` (${fullAcademy.bank_code})` : ""}
                   </span>
                 </div>
               )}
-              {(academy?.bank_branch || academy?.bank_account) && (
+              {(fullAcademy?.bank_branch || fullAcademy?.bank_account) && (
                 <div>
                   <span className="text-muted-foreground">Conta:</span>{" "}
                   <span className="text-foreground font-medium">
-                    {academy.bank_branch ? `Ag ${academy.bank_branch}` : ""}
-                    {academy.bank_branch && academy.bank_account ? " • " : ""}
-                    {academy.bank_account ? `Cc ${academy.bank_account}` : ""}
+                    {fullAcademy.bank_branch ? `Ag ${fullAcademy.bank_branch}` : ""}
+                    {fullAcademy.bank_branch && fullAcademy.bank_account ? " • " : ""}
+                    {fullAcademy.bank_account ? `Cc ${fullAcademy.bank_account}` : ""}
                   </span>
                 </div>
               )}

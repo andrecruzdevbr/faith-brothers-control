@@ -21,6 +21,11 @@ import {
   type FamilyPlanModel,
   type PlanOption,
 } from "@/lib/plans";
+import {
+  PUBLIC_FAMILY_CATALOG_DISABLED_MESSAGE,
+  familyCatalogSelectionMessage,
+  isPublicFamilySignupEnabled,
+} from "@/lib/family-catalog-flags";
 import { isMinor, validateStudentBirthFields } from "@/lib/student-age";
 import {
   PREPAID_PAYMENT_METHOD_LABELS,
@@ -124,6 +129,17 @@ export function FamilyRegistrationWizard({
   const [justAddedKey, setJustAddedKey] = useState<string | null>(null);
 
   const selectedPlan = plans.find((p) => p.id === planId);
+  const selectedAcademy = academies.find((a) => a.id === academyId);
+  const familyCatalogEnabled =
+    isPublicFamilySignupEnabled(selectedAcademy) || plans.length > 0;
+  const familyCatalogMessage = familyCatalogSelectionMessage({
+    loading: loadingPlans || loadingAcademies || !academyId,
+    catalogEnabled: familyCatalogEnabled,
+    plansCount: plans.length,
+    familyDays,
+    hasSelectedPlan: !!selectedPlan,
+  });
+  const familyCatalogSelectable = loadingPlans || plans.length > 0;
   const coveredPractitioners =
     (selectedPlan ? parseFamilyPlanModel(selectedPlan) : null) ?? familyModel;
   const machinePlan = isMachineBillingMode(selectedPlan?.billing_mode);
@@ -141,7 +157,7 @@ export function FamilyRegistrationWizard({
       if (error) {
         toast({ title: "Não foi possível carregar academias", description: error.message, variant: "destructive" });
       } else {
-        const list = ((data ?? []) as AcademyOption[]).filter((a) => !!a.family_plans_enabled);
+        const list = ((data ?? []) as AcademyOption[]).filter((a) => isPublicFamilySignupEnabled(a));
         setAcademies(list);
         if (lockedAcademyId) {
           setAcademyId(lockedAcademyId);
@@ -255,9 +271,14 @@ export function FamilyRegistrationWizard({
     if (familyModel == null) return "Escolha o modelo do Plano Familiar (1, 2 ou 3).";
     if (familyDays == null) return "Escolha quantos dias por semana.";
     if (!planId || !selectedPlan) {
-      return loadingPlans
-        ? "Carregando planos familiares..."
-        : "Plano oficial não encontrado para esta combinação. Contate a academia.";
+      if (loadingPlans) return "Carregando planos familiares...";
+      return familyCatalogSelectionMessage({
+        loading: false,
+        catalogEnabled: familyCatalogEnabled,
+        plansCount: plans.length,
+        familyDays,
+        hasSelectedPlan: false,
+      }) ?? "Plano oficial não encontrado para esta combinação. Contate a academia.";
     }
     if ((selectedPlan.audience ?? "").toLowerCase() !== "familia") {
       return "Selecione um plano do catálogo familiar oficial.";
@@ -271,7 +292,8 @@ export function FamilyRegistrationWizard({
       financialResponsibleName: fullName,
       expectedPractitionerCount: coveredPractitioners ?? undefined,
     });
-    return check.ok ? null : check.error;
+    if (check.ok === false) return check.error;
+    return null;
   };
 
   const validateStepPayment = (): string | null => {
@@ -341,7 +363,7 @@ export function FamilyRegistrationWizard({
         responsibleTrains: true,
         financialResponsibleName: fullName,
       });
-      if (!check.ok) {
+      if (check.ok === false) {
         toast({ title: check.error, variant: "destructive" });
         return;
       }
@@ -733,6 +755,12 @@ export function FamilyRegistrationWizard({
             </div>
           ) : (
             <>
+              {academyId && !familyCatalogSelectable ? (
+                <p className="text-sm text-destructive">
+                  {familyCatalogMessage ?? PUBLIC_FAMILY_CATALOG_DISABLED_MESSAGE}
+                </p>
+              ) : (
+                <>
               <div className="space-y-2">
                 <Label>Qual Plano Familiar deseja contratar?</Label>
                 <div className="grid gap-2">
@@ -740,7 +768,7 @@ export function FamilyRegistrationWizard({
                     <button
                       key={opt.model}
                       type="button"
-                      disabled={!academyId || loadingPlans}
+                      disabled={!academyId || loadingPlans || !familyCatalogSelectable}
                       onClick={() => {
                         setFamilyModel(opt.model);
                         setFamilyDays(null);
@@ -766,7 +794,7 @@ export function FamilyRegistrationWizard({
                       <button
                         key={days}
                         type="button"
-                        disabled={loadingPlans}
+                        disabled={loadingPlans || !familyCatalogSelectable}
                         onClick={() => setFamilyDays(days)}
                         className={`rounded-xl border px-3 py-3 text-center transition-colors ${
                           familyDays === days
@@ -778,13 +806,13 @@ export function FamilyRegistrationWizard({
                       </button>
                     ))}
                   </div>
-                  {familyDays != null && !selectedPlan && !loadingPlans ? (
-                    <p className="text-sm text-destructive">
-                      Combinação indisponível no catálogo. Contate a academia.
-                    </p>
+                  {familyCatalogMessage && familyDays != null ? (
+                    <p className="text-sm text-destructive">{familyCatalogMessage}</p>
                   ) : null}
                 </div>
               ) : null}
+                </>
+              )}
             </>
           )}
         </div>
@@ -873,9 +901,11 @@ export function FamilyRegistrationWizard({
                 <Plus className="h-4 w-4 mr-1" />{" "}
                 {members.length ? "Adicionar outro integrante" : "Adicionar integrante"}
               </Button>
-              <Button type="button" variant="outline" className="flex-1" onClick={openLinkMember}>
-                <Link2 className="h-4 w-4 mr-1" /> Vincular aluno já existente
-              </Button>
+              {adminCreated ? (
+                <Button type="button" variant="outline" className="flex-1" onClick={openLinkMember}>
+                  <Link2 className="h-4 w-4 mr-1" /> Vincular aluno já existente
+                </Button>
+              ) : null}
             </div>
           ) : (
             <div className="rounded-xl border border-border p-4 space-y-3">

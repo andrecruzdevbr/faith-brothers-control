@@ -21,9 +21,11 @@ import {
   Legend,
 } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
+import { QueryLoadError } from "@/components/QueryLoadError";
 import { StatsCard } from "@/components/StatsCard";
-import { useDashboardStats, useBillings, useRanking } from "@/hooks/useQueries";
+import { useDashboardStats, useReportBillings, useRanking } from "@/hooks/useQueries";
 import { BILLING_STATUS_LABELS } from "@/lib/constants";
+import { buildMonthlyReceiptSeries } from "@/lib/finance-indicators";
 import { formatCurrency } from "@/lib/api";
 
 const CHART_TOOLTIP = {
@@ -65,9 +67,25 @@ const RelatoriosSkeleton = () => (
 );
 
 const Relatorios = () => {
-  const { data: stats, isLoading: statsLoading, isError: statsError, error: statsErr } = useDashboardStats();
-  const { data: billingsData, isLoading: billingsLoading, isError: billingsError } = useBillings(1);
-  const { data: ranking, isLoading: rankingLoading, isError: rankingError } = useRanking();
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    isError: statsError,
+    error: statsErr,
+    refetch: refetchStats,
+  } = useDashboardStats();
+  const {
+    data: billingsData,
+    isLoading: billingsLoading,
+    isError: billingsError,
+    refetch: refetchBillings,
+  } = useReportBillings();
+  const {
+    data: ranking,
+    isLoading: rankingLoading,
+    isError: rankingError,
+    refetch: refetchRanking,
+  } = useRanking();
 
   const isLoading = statsLoading || billingsLoading || rankingLoading;
   const isError = statsError || billingsError || rankingError;
@@ -101,19 +119,22 @@ const Relatorios = () => {
   }, [ranking]);
 
   const faturamentoMensal = useMemo(() => {
-    const monthMap = new Map<string, number>();
-    for (const b of billingsData?.billings ?? []) {
-      if (b.status !== "pago") continue;
-      const month = b.reference_month?.slice(0, 7) ?? "—";
-      monthMap.set(month, (monthMap.get(month) ?? 0) + Number(b.amount));
-    }
-    return Array.from(monthMap.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-6)
-      .map(([mes, valor]) => ({
-        mes: new Date(`${mes}-01T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }),
-        valor,
-      }));
+    return buildMonthlyReceiptSeries({
+      billings: (billingsData?.billings ?? []).map((row) => ({
+        studentId: row.student_id,
+        referenceMonth: row.reference_month,
+        amount: Number(row.amount),
+        status: row.status,
+      })),
+      coveredMonths: (billingsData?.coveredMonths ?? []).map((row) => ({
+        studentId: row.student_id,
+        referenceMonth: row.reference_month,
+      })),
+      contractPayments: (billingsData?.contractPayments ?? []).map((row) => ({
+        amount: Number(row.amount),
+        confirmedAt: row.confirmed_at,
+      })),
+    });
   }, [billingsData]);
 
   const cobrancasStatus = useMemo(() => {
@@ -131,15 +152,15 @@ const Relatorios = () => {
 
   if (isError) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-2xl md:text-3xl font-display font-bold tracking-wider">RELATÓRIOS</h1>
-        <div className="flex items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-5 text-destructive">
-          <AlertCircle className="h-5 w-5 shrink-0" />
-          <p className="text-sm">
-            {statsErr instanceof Error ? statsErr.message : "Erro ao carregar relatórios."}
-          </p>
-        </div>
-      </div>
+      <QueryLoadError
+        title="RELATÓRIOS"
+        message={statsErr instanceof Error ? statsErr.message : "Erro ao carregar relatórios."}
+        onRetry={() => {
+          void refetchStats();
+          void refetchBillings();
+          void refetchRanking();
+        }}
+      />
     );
   }
 
@@ -243,7 +264,7 @@ const Relatorios = () => {
           className="rounded-xl border border-border bg-card p-5 shadow-card"
         >
           <h3 className="font-display text-lg font-bold tracking-wider mb-4">FATURAMENTO POR MÊS</h3>
-          {faturamentoMensal.length === 0 ? (
+          {faturamentoMensal.every((row) => row.valor === 0) ? (
             <p className="text-sm text-muted-foreground py-16 text-center">Nenhum pagamento registrado.</p>
           ) : (
             <ResponsiveContainer width="100%" height={250}>

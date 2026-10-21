@@ -59,7 +59,8 @@ export async function findUserByWhatsappEmail(supabase: SupabaseClient, whatsapp
   const email = toSyntheticEmail(whatsapp);
   const { data, error } = await supabase.auth.admin.listUsers({ perPage: 1000 });
   if (error) throw new Error("Erro ao buscar usuário");
-  return data.users.find((u) => u.email === email) ?? null;
+  const users: { email?: string | null }[] = data.users;
+  return users.find((user) => user.email === email) ?? null;
 }
 
 export type RequestOtpResult = {

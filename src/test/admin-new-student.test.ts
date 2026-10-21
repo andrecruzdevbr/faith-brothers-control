@@ -159,7 +159,12 @@ describe("admin WhatsApp idempotente", () => {
   });
 
   it("dispatch usa registration_approved com sendImmediately e chave idempotente", async () => {
-    const queueWhatsAppFn = vi.fn(async () => ({
+    const queueWhatsAppFn = vi.fn(async (_params: {
+      messageType: string;
+      sendImmediately?: boolean;
+      idempotencyKey?: string;
+      body: string;
+    }) => ({
       messageId: "msg-adm-1",
       sent: true,
       skipped: false,

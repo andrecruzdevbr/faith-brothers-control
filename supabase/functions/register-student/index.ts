@@ -3,6 +3,7 @@ import { createServiceClient, requireAdmin } from "../_shared/supabase.ts";
 import { normalizeWhatsapp, toSyntheticEmail } from "../_shared/phone.ts";
 import { isValidTaxId, normalizeTaxId } from "../_shared/tax-id.ts";
 import { mapRegisterStudentRpcError } from "../_shared/register-errors.ts";
+import { authorizeSearchStudents } from "../_shared/search-students-auth.ts";
 import {
   dispatchAdminCreatedRegistrationWhatsApp,
   dispatchRegistrationWhatsApp,
@@ -223,9 +224,31 @@ Deno.serve(async (req) => {
 
     if (action === "search_students") {
       const query = String(body.query ?? "").trim();
-      if (!academyIdEarly) {
-        return new Response(JSON.stringify({ error: "Selecione uma academia." }), {
-          status: 400,
+      const authHeader = req.headers.get("Authorization") ?? "";
+      let adminUserId: string | null = null;
+      let adminAcademyId: string | null = null;
+      let authError: string | null = null;
+      try {
+        const admin = await requireAdmin(authHeader);
+        adminUserId = admin.userId;
+        const { data: profile } = await admin.supabase
+          .from("profiles")
+          .select("academy_id")
+          .eq("user_id", admin.userId)
+          .maybeSingle();
+        adminAcademyId = profile?.academy_id ?? null;
+      } catch (authErr) {
+        authError = authErr instanceof Error ? authErr.message : "Unauthorized";
+      }
+      const auth = authorizeSearchStudents({
+        academyId: academyIdEarly,
+        adminUserId,
+        adminAcademyId,
+        authError,
+      });
+      if (!auth.ok) {
+        return new Response(JSON.stringify({ error: auth.error }), {
+          status: auth.status,
           headers,
         });
       }
