@@ -7,6 +7,7 @@ import {
   Send,
   CheckCircle,
   XCircle,
+  AlertTriangle,
   Loader2,
   MessageSquare,
 } from "lucide-react";
@@ -19,6 +20,11 @@ import { QueryLoadError } from "@/components/QueryLoadError";
 import { isFullAcademy, useAcademySettings, useAcademyId } from "@/hooks/useQueries";
 import { callEdgeFunction, formatDateBR } from "@/lib/api";
 import { formatWhatsapp } from "@/lib/whatsapp-auth";
+import {
+  interpretSendWhatsAppTestResponse,
+  type SendWhatsAppFunctionResponse,
+  type WhatsAppTestOutcome,
+} from "@/lib/whatsapp-test-send";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -67,7 +73,7 @@ const Configuracoes = () => {
 
   const [testNumber, setTestNumber] = useState("");
   const [sending, setSending] = useState(false);
-  const [lastResult, setLastResult] = useState<{ success: boolean; details: string } | null>(null);
+  const [lastResult, setLastResult] = useState<WhatsAppTestOutcome | null>(null);
 
   const {
     data: messages,
@@ -106,7 +112,7 @@ const Configuracoes = () => {
     setLastResult(null);
 
     try {
-      const data = await callEdgeFunction<{ success: boolean; number?: string; error?: string }>(
+      const data = await callEdgeFunction<SendWhatsAppFunctionResponse>(
         "send-whatsapp",
         {
           numero: cleaned,
@@ -114,17 +120,18 @@ const Configuracoes = () => {
         },
       );
 
-      if (data.success) {
-        setLastResult({ success: true, details: `Enviado para ${formatWhatsapp(data.number ?? cleaned)}` });
-        toast({ title: "Mensagem enviada!", description: "Verifique o WhatsApp." });
-      } else {
-        setLastResult({ success: false, details: data.error ?? "Erro desconhecido" });
-        toast({ title: "Erro ao enviar", description: data.error, variant: "destructive" });
-      }
+      const outcome = interpretSendWhatsAppTestResponse(data, formatWhatsapp(data.number ?? cleaned));
+      setLastResult(outcome);
+      toast({
+        title: outcome.toastTitle,
+        description: outcome.details,
+        variant: outcome.toastVariant,
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Erro de conexão";
-      setLastResult({ success: false, details: msg });
-      toast({ title: "Erro de conexão", description: msg, variant: "destructive" });
+      const outcome = interpretSendWhatsAppTestResponse({ success: false, sent: false, error: msg }, formatWhatsapp(cleaned));
+      setLastResult(outcome);
+      toast({ title: outcome.toastTitle, description: outcome.details, variant: outcome.toastVariant });
     } finally {
       setSending(false);
     }
@@ -289,18 +296,22 @@ const Configuracoes = () => {
             {lastResult && (
               <div
                 className={`mt-4 flex items-start gap-2 rounded-lg p-3 text-sm ${
-                  lastResult.success
+                  lastResult.kind === "sent"
                     ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                    : "bg-destructive/10 text-destructive border border-destructive/20"
+                    : lastResult.kind === "skipped"
+                      ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                      : "bg-destructive/10 text-destructive border border-destructive/20"
                 }`}
               >
-                {lastResult.success ? (
+                {lastResult.kind === "sent" ? (
                   <CheckCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                ) : lastResult.kind === "skipped" ? (
+                  <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
                 ) : (
                   <XCircle className="h-5 w-5 shrink-0 mt-0.5" />
                 )}
                 <div>
-                  <p className="font-medium">{lastResult.success ? "Sucesso!" : "Falha no envio"}</p>
+                  <p className="font-medium">{lastResult.title}</p>
                   <p className="text-xs mt-0.5 opacity-80">{lastResult.details}</p>
                 </div>
               </div>
