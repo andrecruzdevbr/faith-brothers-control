@@ -5,6 +5,8 @@ import { queueWhatsApp } from "../_shared/whatsapp.ts";
 import {
   type AcademyBillingSettings,
   type BillingProcessedEntry,
+  DEFAULT_BOLETO_DUE_DAY,
+  DEFAULT_BOLETO_ISSUE_DAY,
   getBillingSettings,
   getMissingBillingSkipStatus,
   getBrazilCivilDate,
@@ -30,6 +32,14 @@ import {
 } from "../_shared/asaas-billing.ts";
 import { normalizeTaxId, sanitizeBillingError } from "../_shared/tax-id.ts";
 import { assertSendableBoletoUrl } from "../_shared/billing-boleto.ts";
+import {
+  buildAsaasBoletoPaymentPayload,
+  buildMonthlyBoletoWhatsAppMessage,
+  preferBankSlipUrl,
+  resolveMonthlyBillingWhatsAppRecipient,
+  shouldDispatchBillingWhatsApp,
+  skipReasonForNonBoletoPaymentMethod,
+} from "../_shared/asaas-monthly-boleto.ts";
 type StudentBillingProfile = {
   tax_id: string | null;
 };
@@ -58,12 +68,18 @@ type StudentRow = {
   whatsapp: string;
   asaas_customer_id: string | null;
   plan_id: string | null;
+  requested_payment_method?: string | null;
   plans: PlanEmbed | PlanEmbed[] | null;
   student_billing_profiles:
     | StudentBillingProfile
     | StudentBillingProfile[]
     | null;
   academies: AcademyEmbed | AcademyEmbed[] | null;
+};
+
+type FamilyResponsible = {
+  phone: string | null;
+  responsibleStudentId: string | null;
 };
 
 type GenerateBody = {
@@ -193,28 +209,38 @@ async function ensureAsaasCustomer(
   return customer.id as string;
 }
 
-function buildBillingMessage(
-  academy: AcademyEmbed | null,
-  studentName: string,
-  planName: string,
-  amount: number,
-  dueDate: string,
-  boletoUrl: string | null,
-) {
-  return [
-    `${academy?.name ?? "Faith Brothers BJJ"}`,
-    "",
-    `Olá ${studentName}!`,
-    "",
-    "Sua mensalidade foi gerada.",
-    `Plano: ${planName}`,
-    `Valor: R$ ${amount.toFixed(2).replace(".", ",")}`,
-    `Vencimento: ${dueDate.split("-").reverse().join("/")}`,
-    boletoUrl ? `Boleto/PIX: ${boletoUrl}` : "",
-    "",
-    `Dúvidas: ${academy?.finance_contact_name ?? "Financeiro"} - ${academy?.finance_whatsapp ?? ""}`,
-    "OSS!",
-  ].filter(Boolean).join("\n");
+async function loadFamilyResponsibleMap(
+  supabase: ReturnType<typeof createServiceClient>,
+  studentIds: string[],
+): Promise<Map<string, FamilyResponsible>> {
+  const map = new Map<string, FamilyResponsible>();
+  if (studentIds.length === 0) return map;
+  const { data, error } = await supabase
+    .from("family_members")
+    .select("student_id, family_groups ( financial_responsible_phone, financial_responsible_student_id )")
+    .in("student_id", studentIds)
+    .eq("status", "ativo");
+  if (error || !data) return map;
+  for (const row of data as Array<{
+    student_id: string;
+    family_groups:
+      | {
+          financial_responsible_phone: string | null;
+          financial_responsible_student_id: string | null;
+        }
+      | {
+          financial_responsible_phone: string | null;
+          financial_responsible_student_id: string | null;
+        }[]
+      | null;
+  }>) {
+    const group = unwrapRelation(row.family_groups);
+    map.set(row.student_id, {
+      phone: group?.financial_responsible_phone ?? null,
+      responsibleStudentId: group?.financial_responsible_student_id ?? null,
+    });
+  }
+  return map;
 }
 
 async function dispatchBillingWhatsApp(params: {
@@ -226,6 +252,7 @@ async function dispatchBillingWhatsApp(params: {
   amount: number;
   dueDate: string;
   boletoUrl: string | null;
+  recipient: string;
 }): Promise<
   | "sent_whatsapp"
   | "queued_whatsapp_send_disabled"
@@ -233,7 +260,7 @@ async function dispatchBillingWhatsApp(params: {
   | "whatsapp_skipped_no_boleto"
   | "whatsapp_skipped_sandbox_boleto"
 > {
-  if (!hasValidStudentWhatsapp(params.student.whatsapp)) {
+  if (!hasValidStudentWhatsapp(params.recipient)) {
     return "skipped_missing_whatsapp";
   }
 
@@ -249,15 +276,17 @@ async function dispatchBillingWhatsApp(params: {
     academyId: params.student.academy_id,
     studentId: params.student.id,
     billingId: params.billingId,
-    recipient: params.student.whatsapp,
-    body: buildBillingMessage(
-      params.academy,
-      params.student.full_name,
-      params.planName,
-      params.amount,
-      params.dueDate,
-      boletoCheck.url,
-    ),
+    recipient: params.recipient,
+    body: buildMonthlyBoletoWhatsAppMessage({
+      academyName: params.academy?.name ?? "Faith Brothers BJJ",
+      studentName: params.student.full_name,
+      planName: params.planName,
+      amount: params.amount,
+      dueDate: params.dueDate,
+      bankSlipUrl: boletoCheck.url,
+      financeContact: params.academy?.finance_contact_name ?? "Financeiro",
+      financeWhatsapp: params.academy?.finance_whatsapp ?? "",
+    }),
     messageType: "billing",
     sendImmediately: true,
   });
@@ -325,8 +354,8 @@ Deno.serve(async (req) => {
     // Período padrão (dia 15). Pode ser sobrescrito por aluno se settings diferirem.
     const defaultPeriodResult = resolveBillingPeriod({
       now,
-      dueDay: 15,
-      issueDay: 10,
+      dueDay: DEFAULT_BOLETO_DUE_DAY,
+      issueDay: DEFAULT_BOLETO_ISSUE_DAY,
       referenceMonth: requestedReferenceMonth,
       rejectPast: false,
     });
@@ -343,7 +372,7 @@ Deno.serve(async (req) => {
     let studentsQuery = supabase
       .from("students")
       .select(`
-        id, academy_id, full_name, email, whatsapp, asaas_customer_id, plan_id,
+        id, academy_id, full_name, email, whatsapp, asaas_customer_id, plan_id, requested_payment_method,
         student_billing_profiles ( tax_id ),
         plans ( id, name, monthly_price, billing_mode ),
         academies!inner ( name, finance_contact_name, finance_whatsapp,
@@ -361,6 +390,10 @@ Deno.serve(async (req) => {
 
     const processed: BillingProcessedEntry[] = [];
     const whatsappHandledBillingIds = new Set<string>();
+    const familyByStudentId = await loadFamilyResponsibleMap(
+      supabase,
+      ((students ?? []) as unknown as StudentRow[]).map((row) => row.id),
+    );
 
     if (studentIdFilter && (!students || students.length === 0)) {
       processed.push(
@@ -438,6 +471,16 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      const nonBoletoSkip = skipReasonForNonBoletoPaymentMethod(student.requested_payment_method);
+      if (nonBoletoSkip) {
+        processed.push({
+          studentId: student.id,
+          studentName: student.full_name,
+          status: nonBoletoSkip,
+        });
+        continue;
+      }
+
       if (shouldSkipBeforeIssueDay(today, settings.boleto_issue_day, force)) {
         processed.push({
           studentId: student.id,
@@ -447,7 +490,15 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      if (!hasValidStudentWhatsapp(student.whatsapp)) {
+      const family = familyByStudentId.get(student.id);
+      const billingRecipient = resolveMonthlyBillingWhatsAppRecipient({
+        studentId: student.id,
+        studentWhatsapp: student.whatsapp,
+        responsibleStudentId: family?.responsibleStudentId,
+        responsiblePhone: family?.phone,
+      }).recipient;
+
+      if (!hasValidStudentWhatsapp(billingRecipient)) {
         processed.push({
           studentId: student.id,
           studentName: student.full_name,
@@ -512,6 +563,7 @@ Deno.serve(async (req) => {
             amount: Number(existingBilling.amount),
             dueDate: String(existingBilling.due_date),
             boletoUrl: existingBilling.boleto_url,
+            recipient: billingRecipient,
           });
           whatsappHandledBillingIds.add(existingBilling.id);
           processed.push({
@@ -636,14 +688,15 @@ Deno.serve(async (req) => {
           stage = "create_asaas_payment";
           paymentRecord = await asaasRequest("/payments", {
             method: "POST",
-            body: JSON.stringify({
-              customer: customerId,
-              billingType: "UNDEFINED",
-              value: planAmount,
-              dueDate,
-              description: `${academy?.name ?? "Academia"} - ${plan.name} - ${period.referenceMonth}`,
-              externalReference,
-            }),
+            body: JSON.stringify(
+              buildAsaasBoletoPaymentPayload({
+                customerId,
+                value: planAmount,
+                dueDate,
+                description: `${academy?.name ?? "Academia"} - ${plan.name} - ${period.referenceMonth}`,
+                externalReference,
+              }),
+            ),
           });
         }
 
@@ -663,7 +716,7 @@ Deno.serve(async (req) => {
           due_date: dueDate,
           status: sendWhatsApp ? "gerado" : "pendente",
           asaas_payment_id: payment.id,
-          boleto_url: payment.boletoUrl,
+          boleto_url: preferBankSlipUrl(paymentRecord),
           invoice_number: payment.invoiceNumber,
           last_error: null as string | null,
         };
@@ -680,27 +733,71 @@ Deno.serve(async (req) => {
 
         insertedBillingId = insertedBilling.id;
 
-        if (sendWhatsApp) {
+        if (
+          shouldDispatchBillingWhatsApp({
+            sendWhatsApp,
+            asaasPaymentId: payment.id,
+          })
+        ) {
           stage = "queue_whatsapp";
-          const waStatus = await dispatchBillingWhatsApp({
-            supabase,
-            student,
-            academy,
-            billingId: insertedBilling.id,
-            planName: plan.name,
-            amount: planAmount,
-            dueDate,
-            boletoUrl: insertedBilling.boleto_url,
-          });
-          whatsappHandledBillingIds.add(insertedBilling.id);
-          if (waStatus === "sent_whatsapp") {
-            processed.push({
-              studentId: student.id,
-              studentName: student.full_name,
+          try {
+            const waStatus = await dispatchBillingWhatsApp({
+              supabase,
+              student,
+              academy,
               billingId: insertedBilling.id,
-              status: "sent_whatsapp",
+              planName: plan.name,
+              amount: planAmount,
+              dueDate,
+              boletoUrl: insertedBilling.boleto_url,
+              recipient: billingRecipient,
             });
-          } else if (waStatus === "skipped_missing_whatsapp") {
+            whatsappHandledBillingIds.add(insertedBilling.id);
+            if (waStatus === "sent_whatsapp") {
+              processed.push({
+                studentId: student.id,
+                studentName: student.full_name,
+                billingId: insertedBilling.id,
+                status: "sent_whatsapp",
+              });
+            } else if (waStatus === "skipped_missing_whatsapp") {
+              processed.push({
+                studentId: student.id,
+                studentName: student.full_name,
+                billingId: insertedBilling.id,
+                status: "generated",
+              });
+              processed.push({
+                studentId: student.id,
+                studentName: student.full_name,
+                billingId: insertedBilling.id,
+                status: "whatsapp_skipped_missing_recipient",
+              });
+            } else if (
+              waStatus === "whatsapp_skipped_no_boleto" ||
+              waStatus === "whatsapp_skipped_sandbox_boleto"
+            ) {
+              processed.push({
+                studentId: student.id,
+                studentName: student.full_name,
+                billingId: insertedBilling.id,
+                status: "generated",
+              });
+              processed.push({
+                studentId: student.id,
+                studentName: student.full_name,
+                billingId: insertedBilling.id,
+                status: waStatus,
+              });
+            } else {
+              processed.push({
+                studentId: student.id,
+                studentName: student.full_name,
+                billingId: insertedBilling.id,
+                status: "queued_whatsapp_send_disabled",
+              });
+            }
+          } catch (whatsappError) {
             processed.push({
               studentId: student.id,
               studentName: student.full_name,
@@ -711,30 +808,10 @@ Deno.serve(async (req) => {
               studentId: student.id,
               studentName: student.full_name,
               billingId: insertedBilling.id,
-              status: "whatsapp_skipped_missing_recipient",
-            });
-          } else if (
-            waStatus === "whatsapp_skipped_no_boleto" ||
-            waStatus === "whatsapp_skipped_sandbox_boleto"
-          ) {
-            processed.push({
-              studentId: student.id,
-              studentName: student.full_name,
-              billingId: insertedBilling.id,
-              status: "generated",
-            });
-            processed.push({
-              studentId: student.id,
-              studentName: student.full_name,
-              billingId: insertedBilling.id,
-              status: waStatus,
-            });
-          } else {
-            processed.push({
-              studentId: student.id,
-              studentName: student.full_name,
-              billingId: insertedBilling.id,
-              status: "queued_whatsapp_send_disabled",
+              status: "whatsapp_failed",
+              error: sanitizeBillingError(
+                whatsappError instanceof Error ? whatsappError.message : "WhatsApp send failed",
+              ),
             });
           }
         } else {

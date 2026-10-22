@@ -45,7 +45,7 @@ function buildMessage(params: {
     `Plano: ${params.planName}`,
     `Valor: R$ ${params.amount.toFixed(2).replace(".", ",")}`,
     `Vencimento: ${params.dueDate.split("-").reverse().join("/")}`,
-    `Boleto/PIX: ${params.boletoUrl}`,
+    `Boleto: ${params.boletoUrl}`,
     "",
     `Contato: ${params.financeContact} - ${params.financeWhatsapp}`,
     "OSS!",

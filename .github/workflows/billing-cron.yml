@@ -4,7 +4,7 @@
 #   SUPABASE_FUNCTIONS_BASE_URL  → https://wojqjxtaqjasnfhbotxi.supabase.co/functions/v1
 #   BILLING_CRON_SECRET          → mesmo valor do secret Supabase
 #
-# - Dia 10 08:00 BRT → generate-monthly-billings (boleto + WhatsApp)
+# - Dia 12 08:00 BRT → generate-monthly-billings (boleto + WhatsApp)
 # - Dia 19 08:00 BRT → send-billing-whatsapp scope=overdue_reminder
 #   (a regra exige data ESTRITAMENTE após o dia 18 do mês de vencimento;
 #    no dia 18 o job retornaria overdue_reminder_too_early para todos)
@@ -14,7 +14,7 @@ name: Billing cron
 
 on:
   schedule:
-    - cron: "0 11 10 * *"
+    - cron: "0 11 12 * *"
     - cron: "0 11 19 * *"
   workflow_dispatch:
     inputs:
@@ -47,12 +47,12 @@ jobs:
           DAY=$(TZ=America/Sao_Paulo date +%d)
           JOB="${DISPATCH_JOB}"
           if [ -z "${JOB}" ]; then
-            if [ "${DAY}" = "10" ]; then
+            if [ "${DAY}" = "12" ]; then
               JOB="generate"
             elif [ "${DAY}" = "19" ]; then
               JOB="overdue"
             else
-              echo "Agenda fora do dia 10/19 (hoje BR=${DAY}). Nada a fazer."
+              echo "Agenda fora do dia 12/19 (hoje BR=${DAY}). Nada a fazer."
               exit 0
             fi
           fi

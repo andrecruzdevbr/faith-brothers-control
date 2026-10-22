@@ -82,6 +82,8 @@ export function collectBillingErrors(
 }
 
 export {
+  DEFAULT_BOLETO_DUE_DAY,
+  DEFAULT_BOLETO_ISSUE_DAY,
   buildBillingPeriod,
   isDueDateBeforeToday,
   listSelectableBillingPeriods,

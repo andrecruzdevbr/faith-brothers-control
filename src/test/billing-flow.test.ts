@@ -74,15 +74,15 @@ describe("overdue reminder rules", () => {
 
 describe("reference month drives button labels", () => {
   it("uses next month label after day 15 (no hardcoded Agosto)", () => {
-    const period = resolveDefaultBillingPeriod(new Date("2026-07-29T12:00:00-03:00"), 15, 10);
+    const period = resolveDefaultBillingPeriod(new Date("2026-07-29T12:00:00-03:00"), 15, 12);
     expect(period.labelPt).toBe("Agosto/2026");
     expect(`Gerar e enviar ${period.labelPt}`).toBe("Gerar e enviar Agosto/2026");
   });
 
-  it("uses current month label between days 10 and 15", () => {
-    const period = resolveDefaultBillingPeriod(new Date("2026-08-12T12:00:00-03:00"), 15, 10);
+  it("uses current month label between days 12 and 15", () => {
+    const period = resolveDefaultBillingPeriod(new Date("2026-08-12T12:00:00-03:00"), 15, 12);
     expect(period.labelPt).toBe("Agosto/2026");
-    expect(period.issueDateLabelPt).toBe("10/08/2026");
+    expect(period.issueDateLabelPt).toBe("12/08/2026");
     expect(period.dueDateLabelPt).toBe("15/08/2026");
   });
 });

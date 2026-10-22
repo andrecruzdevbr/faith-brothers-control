@@ -1,3 +1,6 @@
+export const DEFAULT_BOLETO_ISSUE_DAY = 12;
+export const DEFAULT_BOLETO_DUE_DAY = 15;
+
 export type AcademyBillingSettings = {
   boleto_issue_day: number;
   boleto_due_day: number;
@@ -135,6 +138,7 @@ export function summarizeBillingProcessed(
       case "whatsapp_skipped_sandbox_boleto":
       case "whatsapp_skipped_paid":
       case "whatsapp_already_sent":
+      case "whatsapp_failed":
       case "overdue_reminder_skipped":
       case "overdue_reminder_too_early":
       case "overdue_reminder_already_sent":
@@ -226,7 +230,7 @@ export function buildBillingPeriod(
   year: number,
   monthIndex: number,
   dueDay: number,
-  issueDay = 10,
+  issueDay = DEFAULT_BOLETO_ISSUE_DAY,
 ): BillingPeriod {
   const safeDue = Math.min(Math.max(dueDay, 1), 28);
   const safeIssue = Math.min(Math.max(issueDay, 1), safeDue);
@@ -259,7 +263,7 @@ export function buildBillingPeriod(
 export function resolveDefaultBillingPeriod(
   now: Date,
   dueDay: number,
-  issueDay = 10,
+  issueDay = DEFAULT_BOLETO_ISSUE_DAY,
 ): BillingPeriod {
   const { year, monthIndex, day } = getBrazilCivilDate(now);
   let y = year;
@@ -312,7 +316,7 @@ export function resolveBillingPeriod(params: {
   rejectPast?: boolean;
 }): ResolveBillingPeriodResult {
   const now = params.now ?? new Date();
-  const issueDay = params.issueDay ?? 10;
+  const issueDay = params.issueDay ?? DEFAULT_BOLETO_ISSUE_DAY;
   const dueDay = params.dueDay;
 
   const parsed = parseReferenceMonthInput(params.referenceMonth);
@@ -346,7 +350,7 @@ export function resolveBillingPeriod(params: {
 export function listSelectableBillingPeriods(
   now: Date,
   dueDay: number,
-  issueDay = 10,
+  issueDay = DEFAULT_BOLETO_ISSUE_DAY,
   futureMonths = 3,
 ): BillingPeriod[] {
   const defaultPeriod = resolveDefaultBillingPeriod(now, dueDay, issueDay);

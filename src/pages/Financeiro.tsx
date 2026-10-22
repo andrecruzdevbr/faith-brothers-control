@@ -44,6 +44,7 @@ import {
   listSelectableBillingPeriods,
   resolveDefaultBillingPeriod,
   isDueDateBeforeToday,
+  DEFAULT_BOLETO_ISSUE_DAY,
   type BillingErrorDetail,
   type BillingPeriod,
 } from "@/lib/billing";
@@ -149,7 +150,7 @@ const Financeiro = () => {
   } = useBillings(page, statusFilter);
 
   const dueDay = settings?.billing?.boleto_due_day ?? 15;
-  const issueDay = settings?.billing?.boleto_issue_day ?? 10;
+  const issueDay = settings?.billing?.boleto_issue_day ?? DEFAULT_BOLETO_ISSUE_DAY;
 
   const periodOptions = useMemo(
     () => listSelectableBillingPeriods(new Date(), dueDay, issueDay, 3),
