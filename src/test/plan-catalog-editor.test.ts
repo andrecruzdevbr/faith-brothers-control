@@ -87,7 +87,7 @@ describe("plan catalog editor — audience safety", () => {
       original: familyPlan,
     });
     expect(write.ok).toBe(false);
-    if (!write.ok) expect(write.blocked).toBe(FAMILY_PLAN_EDIT_BLOCKED_MESSAGE);
+    if ("blocked" in write) expect(write.blocked).toBe(FAMILY_PLAN_EDIT_BLOCKED_MESSAGE);
   });
 });
 

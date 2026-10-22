@@ -86,7 +86,7 @@ export function PlanCatalogManager({ academyId }: Props) {
       draft,
       original: editingPlan,
     });
-    if (!write.ok) {
+    if ("blocked" in write) {
       toast({
         title: write.blocked === "Informe o nome do plano" || write.blocked === "Informe um valor válido"
           ? write.blocked
