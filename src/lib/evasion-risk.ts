@@ -9,8 +9,38 @@ export type EvasionRiskRow = {
   reason: string;
 };
 
+export const EVASION_IDLE_DAYS = 14;
+export const EVASION_RECENT_ATTENDANCE_DAYS = 7;
+
+const MS_DAY = 86400000;
+
+function parseTime(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+export function daysBetween(fromMs: number, now: Date): number {
+  return Math.floor((now.getTime() - fromMs) / MS_DAY);
+}
+
+/** Newly enrolled students still inside the 14-day window without a first check-in. */
+export function isAwaitingFirstAttendance(input: {
+  lastAttendanceAt: string | null;
+  createdAt: string | null | undefined;
+  now: Date;
+}): boolean {
+  if (input.lastAttendanceAt) return false;
+  const enrolledMs = parseTime(input.createdAt);
+  if (enrolledMs == null) return false;
+  return input.now.getTime() - enrolledMs < EVASION_IDLE_DAYS * MS_DAY;
+}
+
 export function buildEvasionRisk(input: {
-  students: { data: Array<{ id: string; full_name: string }> | null; error: { message: string } | null };
+  students: {
+    data: Array<{ id: string; full_name: string; created_at?: string | null }> | null;
+    error: { message: string } | null;
+  };
   attendances: { data: Array<{ student_id: string; checked_in_at: string }> | null; error: { message: string } | null };
   overdueBills: { data: Array<{ student_id: string }> | null; error: { message: string } | null };
   now?: Date;
@@ -19,7 +49,7 @@ export function buildEvasionRisk(input: {
   throwIfQueryFailed([input.students, input.attendances, input.overdueBills]);
 
   const now = input.now ?? new Date();
-  const oneWeekAgo = new Date(now.getTime() - 7 * 86400000);
+  const recentSince = new Date(now.getTime() - EVASION_RECENT_ATTENDANCE_DAYS * MS_DAY);
   const overdueSet = new Set((input.overdueBills.data ?? []).map((row) => row.student_id));
   const attMap = new Map<string, string[]>();
   for (const attendance of input.attendances.data ?? []) {
@@ -31,18 +61,30 @@ export function buildEvasionRisk(input: {
   const results: EvasionRiskRow[] = [];
   for (const student of input.students.data ?? []) {
     const atts = attMap.get(student.id) ?? [];
-    const lastAtt = atts.length > 0 ? new Date(Math.max(...atts.map((d) => new Date(d).getTime()))) : null;
-    const dias = lastAtt ? Math.floor((now.getTime() - lastAtt.getTime()) / 86400000) : 99;
-    const hasRecentAtt = atts.some((d) => new Date(d) >= oneWeekAgo);
+    const lastAttMs = atts.length > 0 ? Math.max(...atts.map((d) => new Date(d).getTime())) : null;
+    const enrolledMs = parseTime(student.created_at);
+    const referenceMs = lastAttMs ?? enrolledMs;
+    const dias = referenceMs != null ? daysBetween(referenceMs, now) : 99;
+    const hasRecentAtt = atts.some((d) => new Date(d) >= recentSince);
     const hasOverdue = overdueSet.has(student.id);
-    const noAtt14 = atts.length === 0;
+    const awaitingFirst = isAwaitingFirstAttendance({
+      lastAttendanceAt: lastAttMs != null ? new Date(lastAttMs).toISOString() : null,
+      createdAt: student.created_at,
+      now,
+    });
+    const idle14 = dias >= EVASION_IDLE_DAYS;
+
+    if (awaitingFirst && !hasOverdue) continue;
 
     let risco: EvasionRiskLevel | null = null;
     let reason = "";
-    if (noAtt14 && hasOverdue) {
+    if (awaitingFirst && hasOverdue) {
+      risco = "baixo";
+      reason = "Pagamento atrasado";
+    } else if (idle14 && hasOverdue) {
       risco = "alto";
       reason = "Sem presença há 14+ dias + pagamento atrasado";
-    } else if (noAtt14) {
+    } else if (idle14) {
       risco = "medio";
       reason = "Sem presença há 14+ dias";
     } else if (!hasRecentAtt && hasOverdue) {

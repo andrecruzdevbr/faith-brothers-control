@@ -100,6 +100,24 @@ export function isNogi(row: Pick<ClassScheduleRow, "modality">): boolean {
   return String(row.modality).toLowerCase() === "nogi";
 }
 
+export const CLASS_SCHEDULE_IDLE_EMPTY = "Nenhum horário ativo no momento.";
+export const CLASS_SCHEDULE_FILTER_EMPTY = "Nenhum horário corresponde aos filtros selecionados.";
+
+export function classScheduleEmptyMessage(input: {
+  rowCount: number;
+  filteredCount: number;
+  audience?: string | null;
+  modality?: string | null;
+  idleMessage?: string;
+}): string | null {
+  if (input.filteredCount > 0) return null;
+  const filtersActive =
+    Boolean(input.audience && input.audience !== "all") ||
+    Boolean(input.modality && input.modality !== "all");
+  if (filtersActive && input.rowCount > 0) return CLASS_SCHEDULE_FILTER_EMPTY;
+  return input.idleMessage ?? CLASS_SCHEDULE_IDLE_EMPTY;
+}
+
 export function filterClassSchedules(
   rows: ClassScheduleRow[],
   filters: { audience?: string | null; modality?: string | null },

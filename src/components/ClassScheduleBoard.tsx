@@ -3,6 +3,8 @@ import {
   AUDIENCE_LABELS,
   MODALITY_LABELS,
   displayClassNotes,
+  CLASS_SCHEDULE_IDLE_EMPTY,
+  classScheduleEmptyMessage,
   filterClassSchedules,
   formatClassTitle,
   formatStartTime,
@@ -26,7 +28,7 @@ export function ClassScheduleBoard({
   loading = false,
   title = "Turmas e Horários",
   showFilters = true,
-  emptyMessage = "Nenhum horário ativo no momento.",
+  emptyMessage = CLASS_SCHEDULE_IDLE_EMPTY,
 }: Props) {
   const [audience, setAudience] = useState<string>("all");
   const [modality, setModality] = useState<string>("all");
@@ -36,6 +38,13 @@ export function ClassScheduleBoard({
     [rows, audience, modality],
   );
   const groups = useMemo(() => groupClassSchedulesByDay(filtered), [filtered]);
+  const emptyStateMessage = classScheduleEmptyMessage({
+    rowCount: rows.length,
+    filteredCount: filtered.length,
+    audience,
+    modality,
+    idleMessage: emptyMessage,
+  });
 
   if (loading) {
     return (
@@ -82,7 +91,7 @@ export function ClassScheduleBoard({
 
       {groups.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
-          {emptyMessage}
+          {emptyStateMessage ?? emptyMessage}
         </div>
       ) : (
         <div className="space-y-3">

@@ -121,8 +121,8 @@ const Dashboard = () => {
     queryFn: async () => {
       const twoWeeksAgo = new Date(Date.now() - 14 * 86400000).toISOString();
       const [students, recentAtts, overdueBills] = await Promise.all([
-        fetchAllRows<{ id: string; full_name: string }>((from, to) =>
-          supabase.from("students").select("id, full_name").eq("academy_id", academyId!).eq("status", "ativo").range(from, to),
+        fetchAllRows<{ id: string; full_name: string; created_at: string }>((from, to) =>
+          supabase.from("students").select("id, full_name, created_at").eq("academy_id", academyId!).eq("status", "ativo").range(from, to),
         ).then((data) => ({ data, error: null as { message: string } | null })),
         fetchAllRows<{ student_id: string; checked_in_at: string }>((from, to) =>
           supabase.from("attendances").select("student_id, checked_in_at").eq("academy_id", academyId!).gte("checked_in_at", twoWeeksAgo).range(from, to),

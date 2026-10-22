@@ -20,5 +20,21 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "mobile-375",
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: "msedge",
+        viewport: { width: 375, height: 812 },
+        isMobile: true,
+        hasTouch: true,
+      },
+    },
   ],
+  webServer: {
+    command: "npm run dev",
+    url: "http://localhost:8080",
+    reuseExistingServer: true,
+    timeout: 120_000,
+  },
 });

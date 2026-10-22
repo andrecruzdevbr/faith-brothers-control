@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   OFFICIAL_SCHEDULE_EXPECTATIONS,
   displayClassNotes,
+  CLASS_SCHEDULE_FILTER_EMPTY,
+  CLASS_SCHEDULE_IDLE_EMPTY,
+  classScheduleEmptyMessage,
   filterClassSchedules,
   findScheduleSlot,
   formatStartTime,
@@ -67,6 +70,27 @@ describe("official class schedules", () => {
     expect(filterClassSchedules(rows, { audience: "infantil" })).toHaveLength(6);
     expect(filterClassSchedules(rows, { modality: "nogi" })).toHaveLength(2);
     expect(filterClassSchedules(rows, { audience: "feminino" })).toHaveLength(2);
+    expect(filterClassSchedules(rows, { audience: "infantil", modality: "nogi" })).toHaveLength(0);
+  });
+
+  it("distinguishes filter misses from a catalog with no active slots", () => {
+    const infantilNogi = filterClassSchedules(rows, { audience: "infantil", modality: "nogi" });
+    expect(
+      classScheduleEmptyMessage({
+        rowCount: rows.length,
+        filteredCount: infantilNogi.length,
+        audience: "infantil",
+        modality: "nogi",
+      }),
+    ).toBe(CLASS_SCHEDULE_FILTER_EMPTY);
+    expect(
+      classScheduleEmptyMessage({
+        rowCount: 0,
+        filteredCount: 0,
+        audience: "all",
+        modality: "all",
+      }),
+    ).toBe(CLASS_SCHEDULE_IDLE_EMPTY);
   });
 
   it("hides official_v1 from the board without dropping it on save", () => {
