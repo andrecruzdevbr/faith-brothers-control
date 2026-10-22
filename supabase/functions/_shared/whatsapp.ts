@@ -6,6 +6,11 @@ import {
   type EvolutionConfig,
 } from "./evolution-config.ts";
 import { formatEvolutionApiError } from "./evolution-error.ts";
+import {
+  isWhatsAppRecipientAllowed,
+  parseWhatsAppAllowedRecipients,
+  WHATSAPP_RECIPIENT_NOT_ALLOWED,
+} from "./whatsapp-allowlist.ts";
 
 export type WhatsAppMessageType =
   | "general"
@@ -128,6 +133,14 @@ export async function sendViaEvolution(
       ok: true,
       skipped: true,
       reason: "WHATSAPP_SEND_ENABLED=false",
+    };
+  }
+
+  const allowed = parseWhatsAppAllowedRecipients(Deno.env.get("WHATSAPP_ALLOWED_RECIPIENTS"));
+  if (!isWhatsAppRecipientAllowed(recipient, allowed)) {
+    return {
+      ok: false,
+      error: WHATSAPP_RECIPIENT_NOT_ALLOWED,
     };
   }
 
