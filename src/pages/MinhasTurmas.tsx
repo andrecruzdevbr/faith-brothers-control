@@ -32,7 +32,7 @@ const MinhasTurmas = () => {
         <h1 className="text-2xl md:text-3xl font-display font-bold tracking-wider">TURMAS E HORÁRIOS</h1>
         <p className="text-sm text-muted-foreground mt-1">Agenda oficial da sua academia</p>
       </div>
-      <ClassScheduleBoard rows={(data ?? []) as ClassScheduleRow[]} />
+      <ClassScheduleBoard rows={(data ?? []) as ClassScheduleRow[]} title={null} />
     </div>
   );
 };

@@ -76,7 +76,7 @@ const MinhaGraduacao = () => {
           <div className="flex items-center gap-4">
             <div className={`w-16 h-4 rounded-full ${BELT_COLORS[myStudent.belt || "Branca"] || "bg-gray-200"}`} />
             <div>
-              <p className="font-display text-xl font-bold text-foreground">{myStudent.full_name}</p>
+              <p className="font-display text-xl font-bold text-foreground break-words">{myStudent.full_name}</p>
               <p className="text-sm text-muted-foreground">
                 Faixa {myStudent.belt || "Branca"} • {myStudent.degrees} {myStudent.degrees === 1 ? "grau" : "graus"}
               </p>
@@ -111,8 +111,9 @@ const MinhaGraduacao = () => {
                 </span>
                 <div className={`w-8 h-2 rounded-full ${BELT_COLORS[s.belt || "Branca"] || "bg-gray-200"}`} />
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium truncate ${isMe ? "text-primary font-bold" : "text-foreground"}`}>
-                    {s.full_name} {isMe && "(Você)"}
+                  <p className={`text-sm font-medium break-words ${isMe ? "text-primary font-bold" : "text-foreground"}`}>
+                    {s.full_name}
+                    {isMe ? <span className="whitespace-nowrap"> (Você)</span> : null}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {s.belt || "Branca"} • {s.degrees} {s.degrees === 1 ? "grau" : "graus"}

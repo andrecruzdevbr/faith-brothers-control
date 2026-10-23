@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -336,6 +337,9 @@ const MeuFinanceiro = () => {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Solicitar mudança de plano</DialogTitle>
+            <DialogDescription>
+              A solicitação fica pendente até o administrador aprovar. A cobrança continua no plano atual.
+            </DialogDescription>
           </DialogHeader>
           {academyId && (
             <StudentPlanEditor

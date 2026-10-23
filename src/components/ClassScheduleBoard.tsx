@@ -18,7 +18,7 @@ import { Clock } from "lucide-react";
 type Props = {
   rows: ClassScheduleRow[];
   loading?: boolean;
-  title?: string;
+  title?: string | null;
   showFilters?: boolean;
   emptyMessage?: string;
 };
@@ -49,7 +49,7 @@ export function ClassScheduleBoard({
   if (loading) {
     return (
       <div className="space-y-3">
-        <p className="text-sm font-medium">{title}</p>
+        {title ? <p className="text-sm font-medium">{title}</p> : null}
         <div className="h-24 animate-pulse rounded-xl bg-muted" />
         <div className="h-24 animate-pulse rounded-xl bg-muted" />
       </div>
@@ -59,7 +59,9 @@ export function ClassScheduleBoard({
   return (
     <div className="space-y-4">
       <div className="space-y-1">
-        <p className="text-sm font-semibold tracking-wide uppercase text-foreground">{title}</p>
+        {title ? (
+          <p className="text-sm font-semibold tracking-wide uppercase text-foreground">{title}</p>
+        ) : null}
         <p className="text-xs text-muted-foreground">Agenda oficial da academia (somente consulta).</p>
       </div>
 
