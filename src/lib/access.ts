@@ -59,7 +59,11 @@ export function canAccessPath(roles: AppRole[], pathname: string): boolean {
     return isStaffRole(roles);
   }
 
-  if (path.startsWith("/minha-") || path.startsWith("/meu-")) {
+  if (
+    path.startsWith("/minha-") ||
+    path.startsWith("/minhas-") ||
+    path.startsWith("/meu-")
+  ) {
     return isAlunoRole(roles);
   }
 

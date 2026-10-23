@@ -1492,9 +1492,17 @@ export type Database = {
         Args: { _request_id: string }
         Returns: undefined
       }
+      attendance_qr_is_expired: {
+        Args: { _as_of?: string; _expires_at: string }
+        Returns: boolean
+      }
+      attendance_qr_ttl: { Args: never; Returns: string }
       can_access_billing: { Args: { _billing_id: string }; Returns: boolean }
       can_access_student: { Args: { _student_id: string }; Returns: boolean }
       can_operate_ops: { Args: { _academy_id: string }; Returns: boolean }
+      end_attendance_session: { Args: { _session_id: string }; Returns: Json }
+      get_active_attendance_session: { Args: never; Returns: Json }
+      start_attendance_session: { Args: never; Returns: Json }
       cancel_or_refund_prepaid_contract: {
         Args: {
           _action: string

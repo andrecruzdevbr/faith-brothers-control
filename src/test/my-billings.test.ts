@@ -84,4 +84,20 @@ describe("loadMyBillings", () => {
     expect(result.student?.id).toBe("stu-1");
     expect(result.billings).toHaveLength(1);
   });
+
+  it("loads billings only for the authenticated student's own id", async () => {
+    const seen: string[] = [];
+    await loadMyBillings({
+      getUser: async () => ({ user: { id: "u1" } }),
+      loadStudent: async (userId) => {
+        expect(userId).toBe("u1");
+        return { data: student, error: null };
+      },
+      loadBillings: async (studentId) => {
+        seen.push(studentId);
+        return { data: [billing], error: null };
+      },
+    });
+    expect(seen).toEqual(["stu-1"]);
+  });
 });

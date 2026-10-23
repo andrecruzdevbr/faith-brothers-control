@@ -43,6 +43,30 @@ describe("academy_limited access", () => {
   });
 });
 
+describe("aluno area access", () => {
+  const aluno = ["aluno"] as const;
+
+  it("homes the student to Minha Presença, not the staff dashboard", () => {
+    expect(getHomePath([...aluno])).toBe("/minha-presenca");
+  });
+
+  it("blocks administrative and finance staff pages", () => {
+    expect(canAccessPath([...aluno], "/dashboard")).toBe(false);
+    expect(canAccessPath([...aluno], "/alunos")).toBe(false);
+    expect(canAccessPath([...aluno], "/financeiro")).toBe(false);
+    expect(canAccessPath([...aluno], "/professores")).toBe(false);
+    expect(canAccessPath([...aluno], "/presencas")).toBe(false);
+    expect(canAccessPath([...aluno], "/configuracoes")).toBe(false);
+  });
+
+  it("allows the student self-service pages", () => {
+    expect(canAccessPath([...aluno], "/minha-presenca")).toBe(true);
+    expect(canAccessPath([...aluno], "/meu-financeiro")).toBe(true);
+    expect(canAccessPath([...aluno], "/meu-perfil")).toBe(true);
+    expect(canAccessPath([...aluno], "/minhas-turmas")).toBe(true);
+  });
+});
+
 describe("academy_limited basic academy info contract", () => {
   it("exposes only safe fields from get_my_academy_basic_info", () => {
     const allowed = ["id", "name", "slug", "city", "state", "address"] as const;

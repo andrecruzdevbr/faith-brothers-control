@@ -8,8 +8,13 @@ import { QueryLoadError } from "@/components/QueryLoadError";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { generateUUID } from "@/lib/uuid";
 import { fetchAllRows } from "@/lib/paged-query";
+import {
+  ATTENDANCE_QR_TTL_MINUTES,
+  deviceClockOffsetMs,
+  formatAttendanceQrCountdown,
+  remainingAttendanceQrMsAgainstServer,
+} from "@/lib/attendance-qr";
 
 type StudentEntry = {
   id: string;
@@ -35,7 +40,13 @@ const Presencas = () => {
   const [students, setStudents] = useState<StudentEntry[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<StudentEntry | null>(null);
   const [studentAttendances, setStudentAttendances] = useState<Set<number>>(new Set());
-  const [activeSession, setActiveSession] = useState<{ id: string; token: string } | null>(null);
+  const [activeSession, setActiveSession] = useState<{
+    id: string;
+    token: string;
+    expiresAt: string;
+  } | null>(null);
+  const [clockOffsetMs, setClockOffsetMs] = useState(0);
+  const [remainingMs, setRemainingMs] = useState(0);
   const [sessionAttendances, setSessionAttendances] = useState<AttendanceRecord[]>([]);
   const [loadingSession, setLoadingSession] = useState(false);
   const [studentsError, setStudentsError] = useState<string | null>(null);
@@ -86,31 +97,55 @@ const Presencas = () => {
     setSessionAttendances(enriched);
   }, [students, toast]);
 
-  // Check for active session
   useEffect(() => {
     const checkSession = async () => {
       if (!user?.academyId) return;
-      const { data, error } = await supabase
-        .from("attendance_sessions")
-        .select("id, token")
-        .eq("academy_id", user.academyId)
-        .eq("professor_user_id", user.id)
-        .is("ended_at", null)
-        .gt("expires_at", new Date().toISOString())
-        .order("started_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data, error } = await supabase.rpc("get_active_attendance_session");
       if (error) {
         toast({ title: "Erro ao verificar aula ativa", description: error.message, variant: "destructive" });
         return;
       }
-      if (data) {
-        setActiveSession(data);
-        void loadSessionAttendances(data.id);
+      const payload = data as {
+        session?: { id: string; token: string; expires_at: string } | null;
+        server_now?: string;
+      } | null;
+      if (payload?.session) {
+        setActiveSession({
+          id: payload.session.id,
+          token: payload.session.token,
+          expiresAt: payload.session.expires_at,
+        });
+        if (payload.server_now) {
+          setClockOffsetMs(deviceClockOffsetMs(new Date(), payload.server_now));
+        }
+        void loadSessionAttendances(payload.session.id);
       }
     };
     void checkSession();
   }, [user, loadSessionAttendances, toast]);
+
+  useEffect(() => {
+    if (!activeSession) {
+      setRemainingMs(0);
+      return;
+    }
+    const tick = () => {
+      const left = remainingAttendanceQrMsAgainstServer(
+        activeSession.expiresAt,
+        new Date(),
+        clockOffsetMs,
+      );
+      setRemainingMs(left);
+      if (left <= 0) {
+        setActiveSession(null);
+        setSessionAttendances([]);
+        toast({ title: "QR Code expirado", description: "Gere um novo QR para continuar a aula." });
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [activeSession, clockOffsetMs, toast]);
 
   // Load attendances for selected student
   useEffect(() => {
@@ -138,36 +173,47 @@ const Presencas = () => {
   const startSession = async () => {
     if (!user?.academyId) return;
     setLoadingSession(true);
-    const token = generateUUID();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
+    const { data, error } = await supabase.rpc("start_attendance_session");
+    const payload = data as {
+      id?: string;
+      token?: string;
+      expires_at?: string;
+      server_now?: string;
+    } | null;
 
-    const { data, error } = await supabase
-      .from("attendance_sessions")
-      .insert({
-        academy_id: user.academyId,
-        professor_user_id: user.id,
-        token,
-        expires_at: expiresAt,
-      })
-      .select("id, token")
-      .single();
-
-    if (error) {
-      toast({ title: "Erro ao iniciar aula", description: error.message, variant: "destructive" });
-    } else if (data) {
-      setActiveSession(data);
+    if (error || !payload?.id || !payload.token || !payload.expires_at) {
+      toast({
+        title: "Erro ao iniciar aula",
+        description: error?.message ?? "Não foi possível gerar o QR Code.",
+        variant: "destructive",
+      });
+    } else {
+      setActiveSession({
+        id: payload.id,
+        token: payload.token,
+        expiresAt: payload.expires_at,
+      });
+      if (payload.server_now) {
+        setClockOffsetMs(deviceClockOffsetMs(new Date(), payload.server_now));
+      }
       setSessionAttendances([]);
-      toast({ title: "Aula iniciada!", description: "QR Code gerado. Mostre para os alunos." });
+      toast({
+        title: "Aula iniciada!",
+        description: `QR Code válido por ${ATTENDANCE_QR_TTL_MINUTES} minutos. Mostre para os alunos.`,
+      });
     }
     setLoadingSession(false);
   };
 
   const endSession = async () => {
     if (!activeSession) return;
-    await supabase
-      .from("attendance_sessions")
-      .update({ ended_at: new Date().toISOString() })
-      .eq("id", activeSession.id);
+    const { error } = await supabase.rpc("end_attendance_session", {
+      _session_id: activeSession.id,
+    });
+    if (error) {
+      toast({ title: "Erro ao encerrar aula", description: error.message, variant: "destructive" });
+      return;
+    }
     setActiveSession(null);
     setSessionAttendances([]);
     toast({ title: "Aula encerrada", description: "QR Code invalidado." });
@@ -231,7 +277,12 @@ const Presencas = () => {
                   level="H"
                 />
               </div>
-              <p className="text-sm text-muted-foreground">QR Code válido por 10 minutos</p>
+              <p className="text-sm text-muted-foreground">
+                QR Code válido por {ATTENDANCE_QR_TTL_MINUTES} minutos
+              </p>
+              <p className="font-display text-2xl font-bold tracking-wider text-primary">
+                {formatAttendanceQrCountdown(remainingMs)}
+              </p>
               <Button variant="destructive" onClick={endSession}>
                 <StopCircle className="h-4 w-4 mr-2" />
                 Encerrar Aula
