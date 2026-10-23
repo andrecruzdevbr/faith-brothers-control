@@ -4,6 +4,11 @@
 #   SUPABASE_FUNCTIONS_BASE_URL  → https://wojqjxtaqjasnfhbotxi.supabase.co/functions/v1
 #   BILLING_CRON_SECRET          → mesmo valor do secret Supabase
 #
+# GitHub Actions interpreta `cron:` em UTC (não usa TZ para agendar).
+# 0 11 12 * * = 11:00 UTC do dia 12 = 08:00 America/Sao_Paulo (sem horário de verão).
+# 0 11 19 * * = 11:00 UTC do dia 19 = 08:00 America/Sao_Paulo.
+# TZ=America/Sao_Paulo abaixo só confere o dia civil após o job já ter disparado.
+#
 # - Dia 12 08:00 BRT → generate-monthly-billings (boleto + WhatsApp)
 # - Dia 19 08:00 BRT → send-billing-whatsapp scope=overdue_reminder
 #   (a regra exige data ESTRITAMENTE após o dia 18 do mês de vencimento;
@@ -41,6 +46,14 @@ jobs:
           set -euo pipefail
           if [ -z "${BASE_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
             echo "Configure secrets SUPABASE_FUNCTIONS_BASE_URL e BILLING_CRON_SECRET"
+            exit 1
+          fi
+          if echo "${BASE_URL}" | grep -q "apbksfaztfkxshxffpik"; then
+            echo "Recusando: BASE_URL aponta ao staging"
+            exit 1
+          fi
+          if ! echo "${BASE_URL}" | grep -q "wojqjxtaqjasnfhbotxi"; then
+            echo "Recusando: BASE_URL nao aponta a Production"
             exit 1
           fi
 

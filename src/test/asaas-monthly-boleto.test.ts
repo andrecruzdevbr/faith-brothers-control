@@ -281,9 +281,13 @@ describe("wiring — cron day 12 and generate-monthly-billings payload", () => {
   it("schedules GitHub Actions at 08:00 America/Sao_Paulo on day 12", () => {
     const cron = readFileSync(resolve(ROOT, ".github/workflows/billing-cron.yml"), "utf8");
     expect(cron).toContain('cron: "0 11 12 * *"');
+    expect(cron).toContain("GitHub Actions interpreta `cron:` em UTC");
+    expect(cron).toContain("11:00 UTC do dia 12 = 08:00 America/Sao_Paulo");
     expect(cron).toContain('DAY}" = "12"');
-    expect(cron).toContain("TZ=America/Sao_Paulo");
+    expect(cron).toContain("wojqjxtaqjasnfhbotxi");
+    expect(cron).toContain("Recusando: BASE_URL aponta ao staging");
     expect(cron).not.toContain('cron: "0 11 10 * *"');
+    expect(cron).not.toMatch(/functions\/v1\/.*apbksfaztfkxshxffpik/);
   });
 
   it("uses the boleto payload builder instead of UNDEFINED billingType", () => {
@@ -297,3 +301,73 @@ describe("wiring — cron day 12 and generate-monthly-billings payload", () => {
     expect(source).toContain("preferBankSlipUrl");
   });
 });
+
+describe("controlled day-12 monthly run (mocks only)", () => {
+  it("walks generate → send → skip paid/duplicate → keep principal on late pay", () => {
+    const now = new Date("2026-08-12T08:00:00-03:00");
+    const period = resolveDefaultBillingPeriod(now, 15, 12);
+    expect(period.issueDate).toBe("2026-08-12");
+    expect(period.dueDate).toBe("2026-08-15");
+
+    const payload = buildAsaasBoletoPaymentPayload({
+      customerId: "cus_mock",
+      value: 200,
+      dueDate: period.dueDate,
+      description: "mock",
+      externalReference: "student-mock:2026-08-01",
+    });
+    expect(payload.billingType).toBe("BOLETO");
+    expect(payload.fine.value).toBe(2);
+    expect(payload.interest.value).toBe(1);
+
+    const created = {
+      id: "pay_mock",
+      bankSlipUrl: "https://www.asaas.com/b/pdf/mock",
+      invoiceUrl: "https://www.asaas.com/i/mock",
+    };
+    expect(preferBankSlipUrl(created)).toBe("https://www.asaas.com/b/pdf/mock");
+    expect(shouldDispatchBillingWhatsApp({ sendWhatsApp: true, asaasPaymentId: created.id })).toBe(true);
+    expect(shouldDispatchBillingWhatsApp({ sendWhatsApp: true, asaasPaymentId: null })).toBe(false);
+
+    const familyRecipient = resolveMonthlyBillingWhatsAppRecipient({
+      studentId: "child",
+      studentWhatsapp: "5531999000001",
+      responsiblePhone: "5531981044156",
+    });
+    expect(familyRecipient.recipient).toBe("5531981044156");
+
+    expect(
+      decideBillingGenerationAction(
+        { id: "b-paid", status: "pago", asaas_payment_id: "pay_paid", updated_at: now.toISOString() },
+        now,
+      ).action,
+    ).toBe("already_exists");
+    expect(shouldCreateAsaasPayment(pickExistingAsaasPayment({ data: [created] }))).toBe(false);
+
+    const afterWhatsAppFail = summarizeBillingProcessed([
+      { studentId: "1", status: "generated" },
+      { studentId: "1", status: "whatsapp_failed" },
+    ]);
+    expect(afterWhatsAppFail.created).toBe(1);
+    expect(afterWhatsAppFail.errors).toBe(0);
+
+    const afterAsaasFail = summarizeBillingProcessed([
+      { studentId: "2", status: "failed", stage: "create_asaas_payment" },
+    ]);
+    expect(afterAsaasFail.created).toBe(0);
+    expect(shouldDispatchBillingWhatsApp({ sendWhatsApp: true, asaasPaymentId: null })).toBe(false);
+
+    expect(isWeekendIsoDate("2026-08-15")).toBe(true);
+    expect(payload.dueDate).toBe("2026-08-15");
+
+    const late = calculateBoletoLateCharges({
+      principal: 200,
+      dueDate: "2026-08-15",
+      asOfDate: "2026-08-16",
+    });
+    expect(late.fine).toBe(4);
+    expect(buildBillingUpdates("PAYMENT_RECEIVED", "2026-08-16T12:00:00.000Z")).not.toHaveProperty("amount");
+    expect(assertSendableBoletoUrl("https://sandbox.asaas.com/b/pdf/x").ok).toBe(false);
+  });
+});
+
