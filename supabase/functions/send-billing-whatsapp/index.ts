@@ -8,11 +8,18 @@ import {
   type BillingProcessedEntry,
 } from "../_shared/billing-settings.ts";
 import { assertSendableBoletoUrl } from "../_shared/billing-boleto.ts";
+import { unwrapRelation } from "../_shared/asaas-billing.ts";
+import { resolveMonthlyBillingWhatsAppRecipient } from "../_shared/asaas-monthly-boleto.ts";
 import {
   OVERDUE_BILLING_STATUSES,
   buildOverdueReminderMessage,
   isAfterOverdueReminderDay,
 } from "../_shared/billing-overdue.ts";
+
+type FamilyResponsible = {
+  phone: string | null;
+  responsibleStudentId: string | null;
+};
 
 type SendBody = {
   billingId?: string;
@@ -55,6 +62,40 @@ function buildMessage(params: {
 function unwrapOne<T>(value: T | T[] | null | undefined): T | null {
   if (value == null) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+async function loadFamilyResponsibleMap(
+  supabase: ReturnType<typeof createServiceClient>,
+  studentIds: string[],
+): Promise<Map<string, FamilyResponsible>> {
+  const map = new Map<string, FamilyResponsible>();
+  if (studentIds.length === 0) return map;
+  const { data, error } = await supabase
+    .from("family_members")
+    .select("student_id, family_groups ( financial_responsible_phone, financial_responsible_student_id )")
+    .in("student_id", studentIds)
+    .eq("status", "ativo");
+  if (error || !data) return map;
+  for (const row of data as Array<{
+    student_id: string;
+    family_groups:
+      | {
+          financial_responsible_phone: string | null;
+          financial_responsible_student_id: string | null;
+        }
+      | {
+          financial_responsible_phone: string | null;
+          financial_responsible_student_id: string | null;
+        }[]
+      | null;
+  }>) {
+    const group = unwrapRelation(row.family_groups);
+    map.set(row.student_id, {
+      phone: group?.financial_responsible_phone ?? null,
+      responsibleStudentId: group?.financial_responsible_student_id ?? null,
+    });
+  }
+  return map;
 }
 
 Deno.serve(async (req) => {
@@ -138,6 +179,10 @@ Deno.serve(async (req) => {
 
     const { data: billings, error } = await billingsQuery;
     if (error) throw new Error(error.message);
+    const familyByStudentId = await loadFamilyResponsibleMap(
+      supabase,
+      [...new Set((billings ?? []).map((row) => row.student_id).filter(Boolean))],
+    );
     if (!billings?.length) {
       return new Response(
         JSON.stringify({
@@ -239,7 +284,15 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      if (!hasValidStudentWhatsapp(student?.whatsapp)) {
+      const family = familyByStudentId.get(billing.student_id);
+      const billingRecipient = resolveMonthlyBillingWhatsAppRecipient({
+        studentId: billing.student_id,
+        studentWhatsapp: student?.whatsapp ?? "",
+        responsibleStudentId: family?.responsibleStudentId,
+        responsiblePhone: family?.phone,
+      }).recipient;
+
+      if (!hasValidStudentWhatsapp(billingRecipient)) {
         processed.push({
           studentId: billing.student_id,
           studentName: student?.full_name,
@@ -276,7 +329,7 @@ Deno.serve(async (req) => {
         academyId: billing.academy_id,
         studentId: billing.student_id,
         billingId: billing.id,
-        recipient: student?.whatsapp ?? "",
+        recipient: billingRecipient,
         body: message,
         messageType: effectiveScope === "overdue_reminder" ? "billing_overdue" : "billing",
         sendImmediately: true,

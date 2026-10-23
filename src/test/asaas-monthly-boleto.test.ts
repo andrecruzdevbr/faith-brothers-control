@@ -300,6 +300,27 @@ describe("wiring — cron day 12 and generate-monthly-billings payload", () => {
     expect(source).toContain("shouldDispatchBillingWhatsApp");
     expect(source).toContain("preferBankSlipUrl");
   });
+
+  it("schedules day 19 as overdue reminder, not a new charge", () => {
+    const cron = readFileSync(resolve(ROOT, ".github/workflows/billing-cron.yml"), "utf8");
+    expect(cron).toContain('cron: "0 11 19 * *"');
+    expect(cron).toContain('DAY}" = "19"');
+    expect(cron).toContain('JOB="overdue"');
+    expect(cron).toContain("/send-billing-whatsapp");
+    expect(cron).toContain('{"scope":"overdue_reminder"}');
+    expect(cron).toContain("/generate-monthly-billings");
+  });
+
+  it("sends overdue reminders to the family financial responsible", () => {
+    const source = readFileSync(
+      resolve(ROOT, "supabase/functions/send-billing-whatsapp/index.ts"),
+      "utf8",
+    );
+    expect(source).toContain("resolveMonthlyBillingWhatsAppRecipient");
+    expect(source).toContain("loadFamilyResponsibleMap");
+    expect(source).toContain("recipient: billingRecipient");
+    expect(source).not.toContain("recipient: student?.whatsapp ?? \"\"");
+  });
 });
 
 describe("controlled day-12 monthly run (mocks only)", () => {
