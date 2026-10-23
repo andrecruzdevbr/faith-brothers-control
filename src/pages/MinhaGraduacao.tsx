@@ -111,9 +111,13 @@ const MinhaGraduacao = () => {
                 </span>
                 <div className={`w-8 h-2 rounded-full ${BELT_COLORS[s.belt || "Branca"] || "bg-gray-200"}`} />
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium break-words ${isMe ? "text-primary font-bold" : "text-foreground"}`}>
+                  <p className={`text-sm font-medium break-words text-foreground ${isMe ? "font-bold" : ""}`}>
                     {s.full_name}
-                    {isMe ? <span className="whitespace-nowrap"> (Você)</span> : null}
+                    {isMe ? (
+                      <span className="ml-1.5 inline-flex align-middle whitespace-nowrap rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary-foreground">
+                        Você
+                      </span>
+                    ) : null}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {s.belt || "Branca"} • {s.degrees} {s.degrees === 1 ? "grau" : "graus"}

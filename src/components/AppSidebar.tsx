@@ -5,6 +5,7 @@ import {
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent,
   SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
@@ -44,8 +45,8 @@ const alunoMenuItems = [
 ];
 
 export function AppSidebar() {
-  const { state } = useSidebar();
-  const collapsed = state === "collapsed";
+  const { state, isMobile } = useSidebar();
+  const collapsed = !isMobile && state === "collapsed";
   const location = useLocation();
   const { isStaff, isAdmin, isAcademyLimited, isPanelUser } = useAuth();
 
@@ -72,29 +73,34 @@ export function AppSidebar() {
 
         <SidebarGroup>
           <SidebarGroupContent>
-            <SidebarMenu>
-              {menuItems.map((item) => {
-                const isActive = location.pathname === item.url;
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild>
-                      <NavLink
-                        to={item.url}
-                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 ${
-                          isActive
-                            ? "gradient-primary shadow-glow text-primary-foreground"
-                            : "text-sidebar-foreground hover:bg-sidebar-accent"
-                        }`}
-                        activeClassName=""
-                      >
-                        <item.icon className="h-5 w-5 shrink-0" />
-                        {!collapsed && <span className="text-sm font-medium">{item.title}</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
+            <nav aria-label="Menu principal">
+              <SidebarMenu>
+                {menuItems.map((item) => {
+                  const isActive = location.pathname === item.url;
+                  return (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild tooltip={item.title} isActive={isActive}>
+                        <NavLink
+                          to={item.url}
+                          aria-label={item.title}
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 ${
+                            isActive
+                              ? "gradient-primary shadow-glow text-primary-foreground"
+                              : "text-sidebar-foreground hover:bg-sidebar-accent"
+                          }`}
+                          activeClassName=""
+                        >
+                          <item.icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+                          <span className={cn("text-sm font-medium", collapsed && "sr-only")}>
+                            {item.title}
+                          </span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </nav>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>

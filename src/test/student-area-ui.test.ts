@@ -16,6 +16,29 @@ describe("student area visual fixes", () => {
     expect(source).not.toMatch(/className=\{`text-sm font-medium truncate/);
   });
 
+  it("keeps ranking names on high-contrast foreground instead of primary-on-primary", () => {
+    const source = read("src/pages/MinhaGraduacao.tsx");
+    expect(source).toContain("text-foreground");
+    expect(source).toContain("text-primary-foreground");
+    expect(source).not.toMatch(/isMe \? "text-primary font-bold"/);
+  });
+
+  it("keeps collapsed sidebar link names in the accessibility tree", () => {
+    const source = read("src/components/AppSidebar.tsx");
+    expect(source).toContain("aria-label={item.title}");
+    expect(source).toContain("tooltip={item.title}");
+    expect(source).toContain('collapsed && "sr-only"');
+    expect(source).not.toMatch(/\{!collapsed && <span className="text-sm font-medium">\{item\.title\}<\/span>\}/);
+  });
+
+  it("labels the sidebar toggle in Portuguese with expanded state", () => {
+    const source = read("src/components/ui/sidebar.tsx");
+    expect(source).toContain("Alternar menu de navegação");
+    expect(source).toContain("aria-expanded={expanded}");
+    expect(source).toContain('aria-controls="app-sidebar"');
+    expect(source).not.toContain("Toggle Sidebar");
+  });
+
   it("does not repeat the turmas heading on the student schedule page", () => {
     const page = read("src/pages/MinhasTurmas.tsx");
     expect(page).toContain("title={null}");

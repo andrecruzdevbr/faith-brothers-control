@@ -165,7 +165,7 @@ const Sidebar = React.forwardRef<
           side={side}
         >
           <SheetTitle className="sr-only">Menu de navegação</SheetTitle>
-          <div className="flex h-full w-full flex-col">{children}</div>
+          <div id="app-sidebar" className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>
       </Sheet>
     );
@@ -206,6 +206,7 @@ const Sidebar = React.forwardRef<
         {...props}
       >
         <div
+          id="app-sidebar"
           data-sidebar="sidebar"
           className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow"
         >
@@ -217,9 +218,12 @@ const Sidebar = React.forwardRef<
 });
 Sidebar.displayName = "Sidebar";
 
+const SIDEBAR_TOGGLE_LABEL = "Alternar menu de navegação";
+
 const SidebarTrigger = React.forwardRef<React.ElementRef<typeof Button>, React.ComponentProps<typeof Button>>(
-  ({ className, onClick, ...props }, ref) => {
-    const { toggleSidebar } = useSidebar();
+  ({ className, onClick, children, ...props }, ref) => {
+    const { toggleSidebar, open, openMobile, isMobile } = useSidebar();
+    const expanded = isMobile ? openMobile : open;
 
     return (
       <Button
@@ -228,14 +232,18 @@ const SidebarTrigger = React.forwardRef<React.ElementRef<typeof Button>, React.C
         variant="ghost"
         size="icon"
         className={cn("h-7 w-7", className)}
+        {...props}
+        aria-label={SIDEBAR_TOGGLE_LABEL}
+        aria-expanded={expanded}
+        aria-controls="app-sidebar"
+        title={SIDEBAR_TOGGLE_LABEL}
         onClick={(event) => {
           onClick?.(event);
           toggleSidebar();
         }}
-        {...props}
       >
-        <PanelLeft />
-        <span className="sr-only">Toggle Sidebar</span>
+        {children ?? <PanelLeft />}
+        <span className="sr-only">{SIDEBAR_TOGGLE_LABEL}</span>
       </Button>
     );
   },
@@ -250,10 +258,10 @@ const SidebarRail = React.forwardRef<HTMLButtonElement, React.ComponentProps<"bu
       <button
         ref={ref}
         data-sidebar="rail"
-        aria-label="Toggle Sidebar"
+        aria-label="Alternar menu de navegação"
         tabIndex={-1}
         onClick={toggleSidebar}
-        title="Toggle Sidebar"
+        title="Alternar menu de navegação"
         className={cn(
           "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] group-data-[side=left]:-right-4 group-data-[side=right]:left-0 hover:after:bg-sidebar-border sm:flex",
           "[[data-side=left]_&]:cursor-w-resize [[data-side=right]_&]:cursor-e-resize",
