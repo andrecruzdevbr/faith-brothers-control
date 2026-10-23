@@ -1,4 +1,5 @@
 import { corsHeaders, handleOptions } from "../_shared/cors.ts";
+import { getEnvBoolean } from "../_shared/env.ts";
 import { createServiceClient, requireAuth } from "../_shared/supabase.ts";
 import { queueWhatsApp } from "../_shared/whatsapp.ts";
 
@@ -29,16 +30,21 @@ Deno.serve(async (req) => {
     }
 
     try {
-      const serviceClient = createServiceClient();
-      const { data: profile } = await serviceClient.from("profiles").select("whatsapp").eq("user_id", userId).maybeSingle();
-      if (profile?.whatsapp) {
-        await queueWhatsApp({
-          supabase: serviceClient,
-          recipient: profile.whatsapp,
-          body: "Fala irmão! Presença confirmada hoje 💪🥋\n\nTmj! Oss 👊🏽",
-          messageType: "attendance",
-          sendImmediately: true,
-        });
+      // Staging keeps WHATSAPP_SEND_ENABLED=false: skip the queue entirely so
+      // homolog check-in does not create pending messages. Production with
+      // SEND enabled still queues and sends as before.
+      if (getEnvBoolean("WHATSAPP_SEND_ENABLED", false)) {
+        const serviceClient = createServiceClient();
+        const { data: profile } = await serviceClient.from("profiles").select("whatsapp").eq("user_id", userId).maybeSingle();
+        if (profile?.whatsapp) {
+          await queueWhatsApp({
+            supabase: serviceClient,
+            recipient: profile.whatsapp,
+            body: "Fala irmão! Presença confirmada hoje 💪🥋\n\nTmj! Oss 👊🏽",
+            messageType: "attendance",
+            sendImmediately: true,
+          });
+        }
       }
     } catch {
       // best effort

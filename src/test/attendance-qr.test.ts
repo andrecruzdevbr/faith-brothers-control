@@ -196,4 +196,26 @@ describe("attendance QR wiring", () => {
     expect(source).not.toContain("10 * 60 * 1000");
     expect(source).not.toContain("válido por 10 minutos");
   });
+
+  it("revokes anonymous execute on record_attendance_by_token", () => {
+    const sql = readFileSync(
+      resolve(ROOT, "supabase/migrations/20261022230000_revoke_anon_record_attendance_by_token.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.record_attendance_by_token\(TEXT\) FROM PUBLIC, anon/i);
+    expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.record_attendance_by_token\(TEXT\)/i);
+    expect(sql).toMatch(/TO authenticated, service_role/i);
+  });
+
+  it("does not queue attendance WhatsApp when send is disabled", () => {
+    const source = readFileSync(
+      resolve(ROOT, "supabase/functions/record-attendance/index.ts"),
+      "utf8",
+    );
+    expect(source).toMatch(/if \(getEnvBoolean\("WHATSAPP_SEND_ENABLED"/);
+    const sendGate = source.indexOf('getEnvBoolean("WHATSAPP_SEND_ENABLED"');
+    const queueCall = source.indexOf("await queueWhatsApp");
+    expect(sendGate).toBeGreaterThan(-1);
+    expect(queueCall).toBeGreaterThan(sendGate);
+  });
 });
