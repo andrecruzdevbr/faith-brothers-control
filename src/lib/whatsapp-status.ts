@@ -1,6 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 
-export const EXPECTED_EVOLUTION_HOST = "2.24.108.128";
+export const EXPECTED_EVOLUTION_HOST = "faithbrothers-wa.chickenkiller.com";
+export const LEGACY_EVOLUTION_HOST = "2.24.108.128";
+export const EXPECTED_EVOLUTION_HOSTS: readonly string[] = [EXPECTED_EVOLUTION_HOST, LEGACY_EVOLUTION_HOST];
 export const WHATSAPP_STATUS_TIMEOUT_MS = 15_000;
 export const WHATSAPP_STATUS_FUNCTION = "whatsapp-status";
 
@@ -42,7 +44,7 @@ const UNEXPECTED_HOST_WARNING =
 
 export function sanitizeWhatsAppStatusText(value: string): string {
   return value
-    .replace(/Bearer\s+[A-Za-z0-9._\-]+/gi, "Bearer [redacted]")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [redacted]")
     .replace(/apikey\s*[=:]\s*\S+/gi, "apikey=[redacted]")
     .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[redacted]")
     .trim();
@@ -61,7 +63,9 @@ export function hostnameFromServer(server: string | null | undefined): string | 
 }
 
 export function isExpectedEvolutionHost(server: string | null | undefined): boolean {
-  return hostnameFromServer(server) === EXPECTED_EVOLUTION_HOST;
+  const hostname = hostnameFromServer(server);
+  if (!hostname) return false;
+  return EXPECTED_EVOLUTION_HOSTS.some((allowed) => hostname === allowed);
 }
 
 function safeInstanceName(instance: string | null | undefined): string | null {

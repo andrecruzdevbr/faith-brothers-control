@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   EXPECTED_EVOLUTION_HOST,
+  LEGACY_EVOLUTION_HOST,
   WHATSAPP_STATUS_FUNCTION,
   interpretWhatsAppStatusError,
   interpretWhatsAppStatusResponse,
@@ -10,16 +11,41 @@ import {
 } from "@/lib/whatsapp-status";
 
 describe("isExpectedEvolutionHost", () => {
-  it("accepts the Production VPS host with or without port", () => {
+  it("accepts the HTTPS Production hostname with or without port", () => {
     expect(isExpectedEvolutionHost(EXPECTED_EVOLUTION_HOST)).toBe(true);
-    expect(isExpectedEvolutionHost(`${EXPECTED_EVOLUTION_HOST}:8080`)).toBe(true);
+    expect(isExpectedEvolutionHost(`${EXPECTED_EVOLUTION_HOST}:443`)).toBe(true);
+    expect(isExpectedEvolutionHost(`https://${EXPECTED_EVOLUTION_HOST}`)).toBe(true);
+    expect(isExpectedEvolutionHost(`https://${EXPECTED_EVOLUTION_HOST}/`)).toBe(true);
   });
 
-  it("rejects local Docker and loopback hosts", () => {
+  it("accepts the legacy VPS IP during HTTPS cutover", () => {
+    expect(isExpectedEvolutionHost(LEGACY_EVOLUTION_HOST)).toBe(true);
+    expect(isExpectedEvolutionHost(`${LEGACY_EVOLUTION_HOST}:8080`)).toBe(true);
+    expect(isExpectedEvolutionHost(`http://${LEGACY_EVOLUTION_HOST}:8080`)).toBe(true);
+  });
+
+  it("rejects local Docker, loopback and empty values", () => {
     expect(isExpectedEvolutionHost("host.docker.internal:8085")).toBe(false);
     expect(isExpectedEvolutionHost("localhost:8085")).toBe(false);
     expect(isExpectedEvolutionHost("127.0.0.1:8080")).toBe(false);
     expect(isExpectedEvolutionHost(null)).toBe(false);
+    expect(isExpectedEvolutionHost("")).toBe(false);
+    expect(isExpectedEvolutionHost("   ")).toBe(false);
+  });
+
+  it("rejects lookalike and malicious hostnames", () => {
+    expect(isExpectedEvolutionHost(`${EXPECTED_EVOLUTION_HOST}.evil.example`)).toBe(false);
+    expect(isExpectedEvolutionHost(`evil.${EXPECTED_EVOLUTION_HOST}`)).toBe(false);
+    expect(isExpectedEvolutionHost("faithbrothers-wa.chickenkiller.com.attacker.test")).toBe(false);
+    expect(isExpectedEvolutionHost(`${LEGACY_EVOLUTION_HOST}.evil.example`)).toBe(false);
+    expect(isExpectedEvolutionHost(`https://${EXPECTED_EVOLUTION_HOST}@evil.example`)).toBe(false);
+    expect(isExpectedEvolutionHost("https://evil.example/faithbrothers-wa.chickenkiller.com")).toBe(false);
+  });
+
+  it("rejects malformed server values", () => {
+    expect(isExpectedEvolutionHost("://")).toBe(false);
+    expect(isExpectedEvolutionHost("not a valid host")).toBe(false);
+    expect(isExpectedEvolutionHost("http://")).toBe(false);
   });
 });
 
@@ -29,15 +55,26 @@ describe("interpretWhatsAppStatusResponse", () => {
       connected: true,
       state: "open",
       instance: "FaithBrothersAcademia",
-      baseUrlHost: `${EXPECTED_EVOLUTION_HOST}:8080`,
+      baseUrlHost: EXPECTED_EVOLUTION_HOST,
       sendEnabled: false,
     });
     expect(view.kind).toBe("connected");
     expect(view.label).toBe("Conectado");
     expect(view.instance).toBe("FaithBrothersAcademia");
-    expect(view.server).toBe(`${EXPECTED_EVOLUTION_HOST}:8080`);
+    expect(view.server).toBe(EXPECTED_EVOLUTION_HOST);
     expect(view.unexpectedHost).toBe(false);
     expect(view.hostWarning).toBeNull();
+  });
+
+  it("treats the legacy VPS IP as an expected Production host", () => {
+    const view = interpretWhatsAppStatusResponse({
+      connected: true,
+      state: "open",
+      instance: "FaithBrothersAcademia",
+      baseUrlHost: `${LEGACY_EVOLUTION_HOST}:8080`,
+    });
+    expect(view.unexpectedHost).toBe(false);
+    expect(view.server).toBe(`${LEGACY_EVOLUTION_HOST}:8080`);
   });
 
   it("maps a successful payload without open session to Desconectado", () => {
