@@ -17,13 +17,13 @@ function activeYaml(source: string): string {
 }
 
 describe("WhatsApp Queue cron workflow", () => {
-  it("documents the five-minute schedule without any active trigger", () => {
+  it("is a dedicated five-minute schedule without other executable triggers", () => {
     const cron = readWorkflow();
     const active = activeYaml(cron);
     expect(cron).toContain("name: WhatsApp Queue cron");
-    expect(cron).toContain('cron: "*/5 * * * *"');
-    expect(active).toMatch(/^on:\s*\{\s*\}/m);
-    expect(active).not.toMatch(/^\s*schedule:/m);
+    expect(active).toContain('cron: "*/5 * * * *"');
+    expect(active).toMatch(/^\s*schedule:/m);
+    expect(active).not.toMatch(/^on:\s*\{\s*\}/m);
     expect(active).not.toMatch(/\bworkflow_dispatch\b/);
     expect(active).not.toMatch(/\brepository_dispatch\b/);
     expect(active).not.toMatch(/^\s*push:/m);
@@ -51,9 +51,10 @@ describe("WhatsApp Queue cron workflow", () => {
 
   it("does not force sends or embed secret values", () => {
     const cron = readWorkflow();
+    const active = activeYaml(cron);
     expect(cron).not.toContain("sendWhatsApp");
     expect(cron).not.toContain("force");
-    expect(cron).not.toContain("workflow_dispatch");
+    expect(active).not.toContain("workflow_dispatch");
     expect(cron).not.toMatch(/x-cron-secret:\s+[A-Za-z0-9_\-]{8,}/);
     expect(cron).not.toMatch(/BILLING_CRON_SECRET=[^\n{]/);
     expect(cron).not.toMatch(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);

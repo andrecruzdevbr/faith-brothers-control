@@ -2,18 +2,10 @@
 #
 # NÃO misturar com Billing cron / Birthday cron.
 #
-# Estado: INATIVO. `on: {}` não registra nenhum evento (sem schedule,
-# dispatch ou push). O cron de 5 minutos fica só documentado abaixo.
-#
-# Para ativar (somente com autorização explícita):
-#   1. Trocar `on: {}` pelo bloco:
-#        on:
-#          schedule:
-#            - cron: "*/5 * * * *"
-#   2. Publicar no branch padrão.
-#   3. Conferir que Billing cron e Birthday cron permanecem desativados.
-#
-# GitHub só dispara `schedule` no branch padrão (main).
+# Agenda: a cada 5 minutos (UTC). GitHub só dispara `schedule` no branch
+# padrão (main). A execução permanece bloqueada enquanto o workflow estiver
+# `disabled_manually` no GitHub Actions. Ativar exige autorização explícita
+# (Enable). Sem disparo manual.
 #
 # Secrets do repositório (os mesmos dos outros crons):
 #   SUPABASE_FUNCTIONS_BASE_URL  → https://wojqjxtaqjasnfhbotxi.supabase.co/functions/v1
@@ -23,7 +15,9 @@
 
 name: WhatsApp Queue cron
 
-on: {}
+on:
+  schedule:
+    - cron: "*/5 * * * *"
 
 concurrency:
   group: whatsapp-queue-cron
