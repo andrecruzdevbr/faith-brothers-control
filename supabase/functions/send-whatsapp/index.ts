@@ -1,5 +1,6 @@
 import { corsHeaders, handleOptions } from "../_shared/cors.ts";
 import { requireAdmin, createServiceClient } from "../_shared/supabase.ts";
+import { parseAdminWhatsAppSendRequest } from "../_shared/phone.ts";
 import { queueWhatsApp } from "../_shared/whatsapp.ts";
 
 Deno.serve(async (req) => {
@@ -11,16 +12,17 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization") ?? "";
     await requireAdmin(authHeader);
 
-    const { numero, mensagem } = await req.json();
-    if (!numero || !mensagem) {
-      return new Response(JSON.stringify({ error: "numero e mensagem são obrigatórios" }), { status: 400, headers });
+    const body = await req.json().catch(() => ({}));
+    const parsed = parseAdminWhatsAppSendRequest(body ?? {});
+    if (!parsed.ok) {
+      return new Response(JSON.stringify({ error: parsed.error }), { status: 400, headers });
     }
 
     const supabase = createServiceClient();
     const result = await queueWhatsApp({
       supabase,
-      recipient: String(numero),
-      body: String(mensagem),
+      recipient: parsed.recipient,
+      body: parsed.body,
       messageType: "general",
       sendImmediately: true,
     });
@@ -29,7 +31,7 @@ Deno.serve(async (req) => {
       JSON.stringify({
         success: true,
         messageId: result.messageId,
-        number: numero,
+        number: parsed.recipient,
         sent: result.sent,
         skipped: result.skipped ?? false,
         reason: result.reason,

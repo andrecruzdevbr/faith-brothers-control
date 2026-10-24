@@ -1,3 +1,5 @@
+import { isValidWhatsAppNumber } from "./phone.ts";
+
 export const DEFAULT_BOLETO_ISSUE_DAY = 12;
 export const DEFAULT_BOLETO_DUE_DAY = 15;
 
@@ -51,11 +53,7 @@ export function getMissingBillingSkipStatus(
 }
 
 export function hasValidStudentWhatsapp(whatsapp: string | null | undefined): boolean {
-  const digits = String(whatsapp ?? "").replace(/\D/g, "");
-  if (digits.length >= 12 && digits.startsWith("55")) {
-    return digits.slice(2).length >= 10;
-  }
-  return digits.length >= 10;
+  return isValidWhatsAppNumber(whatsapp);
 }
 
 /** Manual admin run can force generation before issue day. */
