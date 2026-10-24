@@ -9,7 +9,11 @@ import {
 } from "../_shared/billing-settings.ts";
 import { assertSendableBoletoUrl } from "../_shared/billing-boleto.ts";
 import { unwrapRelation } from "../_shared/asaas-billing.ts";
-import { resolveMonthlyBillingWhatsAppRecipient } from "../_shared/asaas-monthly-boleto.ts";
+import {
+  buildBillingIssuedIdempotencyKey,
+  buildBillingOverdueReminderIdempotencyKey,
+  resolveMonthlyBillingWhatsAppRecipient,
+} from "../_shared/asaas-monthly-boleto.ts";
 import {
   OVERDUE_BILLING_STATUSES,
   buildOverdueReminderMessage,
@@ -332,6 +336,10 @@ Deno.serve(async (req) => {
         recipient: billingRecipient,
         body: message,
         messageType: effectiveScope === "overdue_reminder" ? "billing_overdue" : "billing",
+        idempotencyKey:
+          effectiveScope === "overdue_reminder"
+            ? buildBillingOverdueReminderIdempotencyKey(billing.id)
+            : buildBillingIssuedIdempotencyKey(billing.id),
         sendImmediately: true,
       });
 

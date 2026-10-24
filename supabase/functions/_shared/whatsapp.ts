@@ -26,6 +26,9 @@ export type WhatsAppMessageType =
 
 const EVOLUTION_FETCH_TIMEOUT_MS = 15_000;
 export const STUCK_PROCESSING_MS = 2 * 60_000;
+/** Must stay in sync with OTP_EXPIRY_MINUTES in password-reset.ts. */
+export const OTP_WHATSAPP_EXPIRY_MINUTES = 10;
+export const OTP_EXPIRED_NOT_SENT = "otp_expired_not_sent";
 
 export type StuckWhatsAppAction = "mark_sent" | "reclaim_pending" | "leave";
 
@@ -53,6 +56,17 @@ export function resolveStuckWhatsAppAction(
 
 export function isClaimableWhatsAppStatus(status: string): boolean {
   return status === "pending" || status === "failed";
+}
+
+export function shouldSkipExpiredOtpWhatsApp(
+  msg: { message_type?: string | null; created_at?: string | null },
+  now = new Date(),
+  expiryMinutes = OTP_WHATSAPP_EXPIRY_MINUTES,
+): boolean {
+  if (msg.message_type !== "otp") return false;
+  const createdMs = msg.created_at ? Date.parse(msg.created_at) : NaN;
+  if (!Number.isFinite(createdMs)) return true;
+  return now.getTime() - createdMs >= expiryMinutes * 60 * 1000;
 }
 
 async function fetchWithTimeout(
@@ -354,6 +368,19 @@ export async function processWhatsAppMessageById(
     };
   }
 
+  if (shouldSkipExpiredOtpWhatsApp(msg)) {
+    await supabase
+      .from("whatsapp_messages")
+      .update({
+        status: "failed",
+        attempts: Math.max(msg.attempts ?? 0, 3),
+        error_message: OTP_EXPIRED_NOT_SENT,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", messageId);
+    return { processed: false, status: "failed", error: OTP_EXPIRED_NOT_SENT };
+  }
+
   await supabase
     .from("whatsapp_messages")
     .update({
@@ -488,6 +515,21 @@ export async function processPendingMessages(
       .select("id")
       .maybeSingle();
     if (!claimed) continue;
+
+    if (shouldSkipExpiredOtpWhatsApp(msg, now)) {
+      await supabase
+        .from("whatsapp_messages")
+        .update({
+          status: "failed",
+          attempts: Math.max(msg.attempts ?? 0, 3),
+          error_message: OTP_EXPIRED_NOT_SENT,
+          updated_at: nowFn().toISOString(),
+        })
+        .eq("id", msg.id)
+        .eq("status", "processing");
+      processed++;
+      continue;
+    }
 
     let sendResult: SendViaEvolutionResult | null = null;
     try {

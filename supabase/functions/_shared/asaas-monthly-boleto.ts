@@ -146,6 +146,14 @@ export function shouldDispatchBillingWhatsApp(params: {
   return params.sendWhatsApp === true && Boolean(params.asaasPaymentId);
 }
 
+export function buildBillingIssuedIdempotencyKey(billingId: string): string {
+  return `billing:${billingId}:issued`;
+}
+
+export function buildBillingOverdueReminderIdempotencyKey(billingId: string): string {
+  return `billing:${billingId}:overdue_reminder`;
+}
+
 export function buildMonthlyBoletoWhatsAppMessage(params: {
   academyName: string;
   studentName: string;

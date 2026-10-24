@@ -23,6 +23,8 @@ import {
   BOLETO_FINE_PERCENT,
   BOLETO_INTEREST_PERCENT_PER_MONTH,
   buildAsaasBoletoPaymentPayload,
+  buildBillingIssuedIdempotencyKey,
+  buildBillingOverdueReminderIdempotencyKey,
   buildMonthlyBoletoWhatsAppMessage,
   calculateBoletoLateCharges,
   isWeekendIsoDate,
@@ -299,6 +301,18 @@ describe("wiring — cron day 12 and generate-monthly-billings payload", () => {
     expect(source).not.toContain('billingType: "UNDEFINED"');
     expect(source).toContain("shouldDispatchBillingWhatsApp");
     expect(source).toContain("preferBankSlipUrl");
+    expect(source).toContain("buildBillingIssuedIdempotencyKey");
+    expect(source).toContain("idempotencyKey: buildBillingIssuedIdempotencyKey(params.billingId)");
+  });
+
+  it("uses a stable unique key per billing issue event", () => {
+    expect(buildBillingIssuedIdempotencyKey("bill-1")).toBe("billing:bill-1:issued");
+    expect(buildBillingOverdueReminderIdempotencyKey("bill-1")).toBe(
+      "billing:bill-1:overdue_reminder",
+    );
+    expect(buildBillingIssuedIdempotencyKey("bill-1")).not.toBe(
+      buildBillingOverdueReminderIdempotencyKey("bill-1"),
+    );
   });
 
   it("schedules day 19 as overdue reminder, not a new charge", () => {
@@ -320,6 +334,8 @@ describe("wiring — cron day 12 and generate-monthly-billings payload", () => {
     expect(source).toContain("loadFamilyResponsibleMap");
     expect(source).toContain("recipient: billingRecipient");
     expect(source).not.toContain("recipient: student?.whatsapp ?? \"\"");
+    expect(source).toContain("buildBillingIssuedIdempotencyKey");
+    expect(source).toContain("buildBillingOverdueReminderIdempotencyKey");
   });
 });
 

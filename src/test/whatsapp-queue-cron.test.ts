@@ -55,7 +55,7 @@ describe("WhatsApp Queue cron workflow", () => {
     expect(cron).not.toContain("sendWhatsApp");
     expect(cron).not.toContain("force");
     expect(active).not.toContain("workflow_dispatch");
-    expect(cron).not.toMatch(/x-cron-secret:\s+[A-Za-z0-9_\-]{8,}/);
+    expect(cron).not.toMatch(/x-cron-secret:\s+[A-Za-z0-9_-]{8,}/);
     expect(cron).not.toMatch(/BILLING_CRON_SECRET=[^\n{]/);
     expect(cron).not.toMatch(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
     expect(cron).toContain("-d '{}'");

@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   isClaimableWhatsAppStatus,
+  OTP_EXPIRED_NOT_SENT,
+  OTP_WHATSAPP_EXPIRY_MINUTES,
   processPendingMessages,
   resolveStuckWhatsAppAction,
+  shouldSkipExpiredOtpWhatsApp,
   STUCK_PROCESSING_MS,
 } from "../../supabase/functions/_shared/whatsapp.ts";
+import { OTP_EXPIRY_MINUTES } from "../../supabase/functions/_shared/password-reset.ts";
 
 type Row = {
   id: string;
@@ -17,6 +21,7 @@ type Row = {
   error_message?: string | null;
   sent_at?: string | null;
   created_at: string;
+  message_type?: string;
 };
 
 function createConcurrentQueueStore(initial: Row) {
@@ -127,6 +132,22 @@ function createConcurrentQueueStore(initial: Row) {
 
 describe("whatsapp queue concurrency", () => {
   const now = new Date("2026-10-19T12:00:00.000Z");
+
+  it("keeps OTP queue expiry aligned with password-reset token TTL", () => {
+    expect(OTP_WHATSAPP_EXPIRY_MINUTES).toBe(OTP_EXPIRY_MINUTES);
+    expect(OTP_WHATSAPP_EXPIRY_MINUTES).toBe(10);
+  });
+
+  it("skips OTP rows older than the token TTL and sends fresh OTP", () => {
+    const fresh = new Date(now.getTime() - 9 * 60_000).toISOString();
+    const expired = new Date(now.getTime() - 10 * 60_000).toISOString();
+    expect(shouldSkipExpiredOtpWhatsApp({ message_type: "billing", created_at: expired }, now)).toBe(
+      false,
+    );
+    expect(shouldSkipExpiredOtpWhatsApp({ message_type: "otp", created_at: fresh }, now)).toBe(false);
+    expect(shouldSkipExpiredOtpWhatsApp({ message_type: "otp", created_at: expired }, now)).toBe(true);
+    expect(shouldSkipExpiredOtpWhatsApp({ message_type: "otp", created_at: null }, now)).toBe(true);
+  });
 
   it("only pending/failed are claimable", () => {
     expect(isClaimableWhatsAppStatus("pending")).toBe(true);
@@ -364,5 +385,32 @@ describe("whatsapp queue concurrency", () => {
     expect(sendFn).not.toHaveBeenCalled();
     expect(store.status).toBe("sent");
     expect(store.external_id).toBe("evo-already");
+  });
+
+  it("does not send expired OTP leftovers through the queue", async () => {
+    const createdAt = new Date(now.getTime() - 11 * 60_000).toISOString();
+    const { shared, supabase } = createConcurrentQueueStore({
+      id: "otp-old",
+      status: "pending",
+      recipient: "5511999999999",
+      body: "codigo-nao-deve-sair",
+      attempts: 0,
+      updated_at: createdAt,
+      external_id: null,
+      created_at: createdAt,
+      message_type: "otp",
+    });
+    const sendFn = vi.fn(async () => ({ ok: true, externalId: "should-not-send" }));
+
+    const processed = await processPendingMessages(supabase as never, {
+      now: () => now,
+      sendFn,
+    });
+
+    expect(processed).toBe(1);
+    expect(sendFn).not.toHaveBeenCalled();
+    expect(shared.status).toBe("failed");
+    expect(shared.attempts).toBe(3);
+    expect(shared.error_message).toBe(OTP_EXPIRED_NOT_SENT);
   });
 });

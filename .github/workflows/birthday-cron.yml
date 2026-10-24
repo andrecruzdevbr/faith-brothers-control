@@ -1,8 +1,10 @@
 # Aniversários Faith Brothers — WhatsApp diário (GitHub Actions).
 #
 # Secrets do repositório (já usados no billing-cron):
-#   SUPABASE_FUNCTIONS_BASE_URL  → https://<ref>.supabase.co/functions/v1
+#   SUPABASE_FUNCTIONS_BASE_URL  → https://wojqjxtaqjasnfhbotxi.supabase.co/functions/v1
 #   BILLING_CRON_SECRET          → mesmo valor do secret Supabase (x-cron-secret)
+#
+# Recusa staging (apbksfaztfkxshxffpik) e qualquer BASE_URL que não seja Production.
 #
 # Agenda: ~08:00 America/Sao_Paulo = 11:00 UTC (sem horário de verão BR).
 # workflow_dispatch permite teste manual.
@@ -26,6 +28,14 @@ jobs:
           set -euo pipefail
           if [ -z "${BASE_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
             echo "Configure secrets SUPABASE_FUNCTIONS_BASE_URL e BILLING_CRON_SECRET"
+            exit 1
+          fi
+          if echo "${BASE_URL}" | grep -q "apbksfaztfkxshxffpik"; then
+            echo "Recusando: BASE_URL aponta ao staging"
+            exit 1
+          fi
+          if ! echo "${BASE_URL}" | grep -q "wojqjxtaqjasnfhbotxi"; then
+            echo "Recusando: BASE_URL nao aponta a Production"
             exit 1
           fi
 
