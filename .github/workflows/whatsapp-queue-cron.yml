@@ -1,0 +1,54 @@
+# Fila WhatsApp Faith Brothers — process-whatsapp-queue (GitHub Actions).
+#
+# NÃO misturar com Billing cron / Birthday cron.
+# GitHub só dispara `schedule` no branch padrão (main). Este arquivo em
+# outra branch NÃO executa. Merge para main exige autorização explícita.
+#
+# Secrets do repositório (os mesmos dos outros crons):
+#   SUPABASE_FUNCTIONS_BASE_URL  → https://wojqjxtaqjasnfhbotxi.supabase.co/functions/v1
+#   BILLING_CRON_SECRET          → mesmo valor do secret Supabase (header x-cron-secret)
+#
+# Agenda: a cada 5 minutos (UTC). A Edge Function recusa envio quando
+# WHATSAPP_SEND_ENABLED=false; o workflow não força envio.
+
+name: WhatsApp Queue cron
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+
+concurrency:
+  group: whatsapp-queue-cron
+  cancel-in-progress: false
+
+jobs:
+  process-queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - name: Call process-whatsapp-queue
+        env:
+          BASE_URL: ${{ secrets.SUPABASE_FUNCTIONS_BASE_URL }}
+          CRON_SECRET: ${{ secrets.BILLING_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "Configure secrets SUPABASE_FUNCTIONS_BASE_URL e BILLING_CRON_SECRET"
+            exit 1
+          fi
+          if echo "${BASE_URL}" | grep -q "apbksfaztfkxshxffpik"; then
+            echo "Recusando: BASE_URL aponta ao staging"
+            exit 1
+          fi
+          if ! echo "${BASE_URL}" | grep -q "wojqjxtaqjasnfhbotxi"; then
+            echo "Recusando: BASE_URL nao aponta a Production"
+            exit 1
+          fi
+
+          echo "Calling Production process-whatsapp-queue"
+          curl -fsS --max-time 45 -X POST "${BASE_URL%/}/process-whatsapp-queue" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: ${CRON_SECRET}" \
+            -d '{}'

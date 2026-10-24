@@ -1,0 +1,51 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const ROOT = resolve(process.cwd());
+const WORKFLOW = ".github/workflows/whatsapp-queue-cron.yml";
+
+function readWorkflow(): string {
+  return readFileSync(resolve(ROOT, WORKFLOW), "utf8");
+}
+
+describe("WhatsApp Queue cron workflow", () => {
+  it("is a dedicated scheduled workflow every five minutes without manual dispatch", () => {
+    const cron = readWorkflow();
+    expect(cron).toContain("name: WhatsApp Queue cron");
+    expect(cron).toContain('cron: "*/5 * * * *"');
+    expect(cron).not.toMatch(/\bworkflow_dispatch\b/);
+    expect(cron).toContain("concurrency:");
+    expect(cron).toContain("group: whatsapp-queue-cron");
+    expect(cron).toContain("cancel-in-progress: false");
+    expect(cron).toContain("timeout-minutes: 2");
+  });
+
+  it("posts only to Production process-whatsapp-queue with the shared cron secret", () => {
+    const cron = readWorkflow();
+    expect(cron).toContain("secrets.SUPABASE_FUNCTIONS_BASE_URL");
+    expect(cron).toContain("secrets.BILLING_CRON_SECRET");
+    expect(cron).toContain("x-cron-secret:");
+    expect(cron).toContain("-X POST");
+    expect(cron).toContain("/process-whatsapp-queue");
+    expect(cron).toContain("wojqjxtaqjasnfhbotxi");
+    expect(cron).toContain("Recusando: BASE_URL aponta ao staging");
+    expect(cron).toContain("apbksfaztfkxshxffpik");
+    expect(cron).toContain("curl -fsS --max-time 45");
+    expect(cron).toContain("set -euo pipefail");
+    expect(cron).not.toMatch(/functions\/v1\/.*apbksfaztfkxshxffpik/);
+  });
+
+  it("does not force sends or embed secret values", () => {
+    const cron = readWorkflow();
+    expect(cron).not.toContain("sendWhatsApp");
+    expect(cron).not.toContain("force");
+    expect(cron).not.toContain("workflow_dispatch");
+    expect(cron).not.toMatch(/x-cron-secret:\s+[A-Za-z0-9_\-]{8,}/);
+    expect(cron).not.toMatch(/BILLING_CRON_SECRET=[^\n{]/);
+    expect(cron).not.toMatch(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+    expect(cron).toContain("-d '{}'");
+    expect(cron).not.toContain("generate-monthly-billings");
+    expect(cron).not.toContain("send-birthday-whatsapp");
+  });
+});
