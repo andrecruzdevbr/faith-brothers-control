@@ -9,12 +9,25 @@ function readWorkflow(): string {
   return readFileSync(resolve(ROOT, WORKFLOW), "utf8");
 }
 
+function activeYaml(source: string): string {
+  return source
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("#"))
+    .join("\n");
+}
+
 describe("WhatsApp Queue cron workflow", () => {
-  it("is a dedicated scheduled workflow every five minutes without manual dispatch", () => {
+  it("documents the five-minute schedule without any active trigger", () => {
     const cron = readWorkflow();
+    const active = activeYaml(cron);
     expect(cron).toContain("name: WhatsApp Queue cron");
     expect(cron).toContain('cron: "*/5 * * * *"');
-    expect(cron).not.toMatch(/\bworkflow_dispatch\b/);
+    expect(active).toMatch(/^on:\s*\{\s*\}/m);
+    expect(active).not.toMatch(/^\s*schedule:/m);
+    expect(active).not.toMatch(/\bworkflow_dispatch\b/);
+    expect(active).not.toMatch(/\brepository_dispatch\b/);
+    expect(active).not.toMatch(/^\s*push:/m);
+    expect(active).not.toMatch(/^\s*pull_request:/m);
     expect(cron).toContain("concurrency:");
     expect(cron).toContain("group: whatsapp-queue-cron");
     expect(cron).toContain("cancel-in-progress: false");
