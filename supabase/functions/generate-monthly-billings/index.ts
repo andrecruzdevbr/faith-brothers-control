@@ -34,6 +34,7 @@ import { normalizeTaxId, sanitizeBillingError } from "../_shared/tax-id.ts";
 import { assertSendableBoletoUrl } from "../_shared/billing-boleto.ts";
 import {
   buildAsaasBoletoPaymentPayload,
+  buildBillingIssuedIdempotencyKey,
   buildMonthlyBoletoWhatsAppMessage,
   preferBankSlipUrl,
   resolveMonthlyBillingWhatsAppRecipient,
@@ -288,6 +289,7 @@ async function dispatchBillingWhatsApp(params: {
       financeWhatsapp: params.academy?.finance_whatsapp ?? "",
     }),
     messageType: "billing",
+    idempotencyKey: buildBillingIssuedIdempotencyKey(params.billingId),
     sendImmediately: true,
   });
 
