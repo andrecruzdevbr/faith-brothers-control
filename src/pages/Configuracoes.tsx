@@ -10,6 +10,9 @@ import {
   AlertTriangle,
   Loader2,
   MessageSquare,
+  RefreshCw,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -25,6 +28,13 @@ import {
   type SendWhatsAppFunctionResponse,
   type WhatsAppTestOutcome,
 } from "@/lib/whatsapp-test-send";
+import {
+  WHATSAPP_STATUS_CHECKING,
+  WHATSAPP_STATUS_FUNCTION,
+  fetchWhatsAppStatus,
+  interpretWhatsAppStatusError,
+  type WhatsAppStatusView,
+} from "@/lib/whatsapp-status";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -74,6 +84,23 @@ const Configuracoes = () => {
   const [testNumber, setTestNumber] = useState("");
   const [sending, setSending] = useState(false);
   const [lastResult, setLastResult] = useState<WhatsAppTestOutcome | null>(null);
+
+  const {
+    data: connection,
+    isFetching: connectionFetching,
+    isPending: connectionPending,
+    refetch: refetchConnection,
+  } = useQuery({
+    queryKey: ["whatsapp-status", WHATSAPP_STATUS_FUNCTION],
+    enabled: !basicOnly,
+    queryFn: () => fetchWhatsAppStatus(),
+    retry: false,
+    staleTime: 15_000,
+  });
+
+  const connectionView: WhatsAppStatusView = connectionPending
+    ? WHATSAPP_STATUS_CHECKING
+    : (connection ?? interpretWhatsAppStatusError(new Error("Não foi possível consultar o status.")));
 
   const {
     data: messages,
@@ -266,6 +293,84 @@ const Configuracoes = () => {
 
       {!basicOnly && (
         <>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+            className="rounded-xl border border-border bg-card p-4 sm:p-6 shadow-card"
+          >
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-4">
+              <div className="flex items-center gap-3">
+                {connectionView.kind === "connected" ? (
+                  <Wifi className="h-6 w-6 text-primary shrink-0" />
+                ) : connectionView.kind === "checking" ? (
+                  <Loader2 className="h-6 w-6 text-primary shrink-0 animate-spin" />
+                ) : (
+                  <WifiOff className="h-6 w-6 text-muted-foreground shrink-0" />
+                )}
+                <h3 className="font-display text-lg font-bold tracking-wider">CONEXÃO WHATSAPP</h3>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  void refetchConnection();
+                }}
+                disabled={connectionFetching}
+                className="w-full sm:w-auto"
+              >
+                {connectionFetching ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                Verificar conexão
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Consulta o estado real da Evolution API. Esta verificação não envia mensagens.
+            </p>
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <span className="text-sm text-muted-foreground">Status:</span>
+              <Badge
+                variant={
+                  connectionView.kind === "connected"
+                    ? "default"
+                    : connectionView.kind === "error"
+                      ? "destructive"
+                      : "outline"
+                }
+              >
+                {connectionFetching && connection ? "Verificando" : connectionView.label}
+              </Badge>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-muted-foreground">Instância:</span>{" "}
+                <span className="text-foreground font-medium">{connectionView.instance ?? "—"}</span>
+              </div>
+              <div className="min-w-0">
+                <span className="text-muted-foreground">Servidor:</span>{" "}
+                <span className="text-foreground font-medium break-all">{connectionView.server ?? "—"}</span>
+              </div>
+            </div>
+            {connectionView.details && connectionView.kind !== "error" && (
+              <p className="text-xs text-muted-foreground mt-3">{connectionView.details}</p>
+            )}
+            {connectionView.unexpectedHost && connectionView.hostWarning && (
+              <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-400">
+                <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
+                <p>{connectionView.hostWarning}</p>
+              </div>
+            )}
+            {connectionView.kind === "error" && (
+              <div className="mt-4 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+                <XCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                <p>{connectionView.details}</p>
+              </div>
+            )}
+          </motion.div>
+
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
