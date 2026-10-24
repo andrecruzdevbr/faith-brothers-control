@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Faith Brothers — Etapa 2: SERVER_URL HTTPS (somente evolution-api).
-# Altera só SERVER_URL no .env e recria o serviço evolution-api com --no-deps.
-# Não fecha 8080. Não toca Postgres/Redis. Não envia WhatsApp. Não executa Etapa 3.
+# Faith Brothers — Etapa 2 corrigida: SERVER_URL HTTPS (somente evolution-api).
+# Sucesso = printenv SERVER_URL no container + HTTPS 200 + versão 2.3.7 + instância open.
+# O campo manager HTTP é esperado (req.protocol/Host) e NÃO provoca rollback.
+# Não fecha 8080. Não toca Postgres/Redis/Caddy. Não envia WhatsApp. Não executa Etapa 3.
 
 set -euo pipefail
 
@@ -33,8 +34,9 @@ compose() {
   docker compose -f "${COMPOSE_FILE}" --project-directory "${EVOLUTION_DIR}" "$@"
 }
 
-up_args=(up -d --no-deps --force-recreate)
+up_args=(up -d --no-deps --force-recreate --pull never)
 config_args=(--quiet)
+EXPECTED_VERSION="2.3.7"
 
 read_env_url() {
   python3 - "$1" <<'PY'
@@ -128,7 +130,12 @@ print("VERSION=%s" % (data.get("version") or ""))
 mgr = str(data.get("manager") or "")
 print("MANAGER=%s" % mgr)
 print("MANAGER_HTTPS=%s" % ("yes" if mgr.startswith("https://") else "no"))
+print("MANAGER_HTTP_EXPECTED=%s" % ("yes" if mgr.startswith("http://") else "no"))
 PY
+}
+
+container_server_url() {
+  docker exec "${CONTAINER}" printenv SERVER_URL 2>/dev/null || true
 }
 
 instance_state() {
@@ -340,12 +347,20 @@ port_bind
 snapshot_others
 ok "Snapshot de containers auxiliares gravado"
 
-# Idempotente: ja no alvo e manager HTTPS
-if [[ "${current_url}" == "${TARGET_URL}" ]]; then
+echo "=== PRE_CONTAINER_SERVER_URL ==="
+pre_container_url="$(container_server_url)"
+echo "CONTAINER_SERVER_URL=${pre_container_url}"
+
+# Idempotente: .env e container ja no alvo, HTTPS 200, versao e instancia ok.
+# manager HTTP nao impede o skip.
+if [[ "${current_url}" == "${TARGET_URL}" && "${pre_container_url}" == "${TARGET_URL}" ]]; then
   https_now="$(http_welcome "https://${DOMAIN}/" || true)"
   printf '%s\n' "${https_now}"
-  if printf '%s' "${https_now}" | grep -q 'MANAGER_HTTPS=yes'; then
-    ok "SERVER_URL ja esta no alvo e manager ja e HTTPS. Sem recreate."
+  if printf '%s' "${https_now}" | grep -q 'HTTP=200' \
+    && printf '%s' "${https_now}" | grep -q "VERSION=${EXPECTED_VERSION}" \
+    && printf '%s' "${pre_inst}" | grep -q 'INSTANCE_CONNECTED=yes'; then
+    ok "SERVER_URL ja injetado no container. Sem recreate."
+    echo "MANAGER_HTTP_EXPECTED=yes"
     echo "RECREATED=no"
     echo "ETAPA3=not_executed"
     echo "PORT_8080_CLOSED=no"
@@ -353,7 +368,7 @@ if [[ "${current_url}" == "${TARGET_URL}" ]]; then
     echo "=== STAGE2_END ==="
     exit 0
   fi
-  warn "SERVER_URL no .env ja e HTTPS, mas manager ainda nao. Recriando API."
+  warn "Alvo no .env, mas HTTPS/versao/instancia nao confirmados. Recriando API."
 fi
 
 # --- Validate compose without printing secrets ---
@@ -363,8 +378,9 @@ up_help="$(compose up --help 2>/dev/null || true)"
 if printf '%s' "${compose_help}" | grep -q -- '--no-interpolate'; then
   config_args+=(--no-interpolate)
 fi
-if printf '%s' "${up_help}" | grep -q -- '--pull'; then
-  up_args+=(--pull never)
+if ! printf '%s' "${up_help}" | grep -q -- '--pull'; then
+  err "docker compose up nao oferece --pull never; abortando sem alterar"
+  exit 1
 fi
 compose config "${config_args[@]}"
 ok "Compose valido (sem dump de secrets)"
@@ -410,6 +426,16 @@ if ! assert_others_unchanged; then
   exit 1
 fi
 
+echo "=== POST_CONTAINER_SERVER_URL ==="
+post_container_url="$(container_server_url)"
+echo "CONTAINER_SERVER_URL=${post_container_url}"
+if [[ "${post_container_url}" != "${TARGET_URL}" ]]; then
+  err "Container nao recebeu SERVER_URL alvo (printenv divergente)"
+  rollback_recreate
+  exit 1
+fi
+ok "printenv SERVER_URL=${TARGET_URL}"
+
 echo "=== POST_LOCAL ==="
 http_welcome "http://${BACKEND}/"
 echo "=== POST_HTTPS ==="
@@ -420,12 +446,18 @@ if ! printf '%s' "${https_out}" | grep -q 'HTTP=200'; then
   rollback_recreate
   exit 1
 fi
-if ! printf '%s' "${https_out}" | grep -q 'MANAGER_HTTPS=yes'; then
-  err "manager ainda nao usa HTTPS"
+if ! printf '%s' "${https_out}" | grep -q "VERSION=${EXPECTED_VERSION}"; then
+  err "Versao Evolution inesperada (esperado ${EXPECTED_VERSION})"
   rollback_recreate
   exit 1
 fi
-ok "HTTPS 200 e manager HTTPS"
+ok "HTTPS 200 e versao ${EXPECTED_VERSION}"
+if printf '%s' "${https_out}" | grep -q 'MANAGER_HTTPS=yes'; then
+  info "manager anunciou HTTPS (inesperado, mas aceito)"
+else
+  info "manager HTTP e esperado (req.protocol/Host); sem rollback"
+fi
+echo "MANAGER_HTTP_EXPECTED=yes"
 
 echo "=== POST_INSTANCE ==="
 # A sessao pode levar alguns segundos para voltar a open
@@ -447,7 +479,13 @@ fi
 ok "Instancia ${INSTANCE} open"
 
 echo "=== POST_PORT ==="
-port_bind
+post_port="$(port_bind)"
+printf '%s\n' "${post_port}"
+if ! printf '%s' "${post_port}" | grep -q 'PORT_8080_BIND=public_0.0.0.0'; then
+  err "Porta 8080 deixou de estar publicada publicamente"
+  rollback_recreate
+  exit 1
+fi
 echo "PORT_8080_CLOSED=no"
 
 echo "=== GUARDS ==="
@@ -456,13 +494,17 @@ echo "POSTGRES_RESTARTED=no"
 echo "REDIS_RESTARTED=no"
 echo "VOLUMES_DELETED=no"
 echo "WHATSAPP_SENT=no"
+echo "CADDY_MODIFIED=no"
 echo "ETAPA3=not_executed"
 echo "ROLLBACK_EXECUTED=no"
+echo "MANAGER_HTTP_EXPECTED=yes"
 echo "=== STAGE2_END ==="
 echo
 echo "=== RESULTADO ==="
-echo "SERVER_URL=${TARGET_URL}"
+echo "CONTAINER_SERVER_URL=${TARGET_URL}"
 echo "SERVICE=${SERVICE}"
-echo "HTTPS_MANAGER=yes"
+echo "HTTPS_HTTP=200"
+echo "VERSION=${EXPECTED_VERSION}"
 echo "INSTANCE_OPEN=yes"
 echo "PORT_8080_PRESERVED=yes"
+echo "MANAGER_FIELD=http_expected"
