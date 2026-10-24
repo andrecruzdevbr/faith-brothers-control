@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import {
   buildEvolutionConnectionStatePath,
@@ -204,5 +206,38 @@ describe("formatEvolutionApiError", () => {
     });
     expect(formatted).toContain("httpStatus=401");
     expect(formatted).not.toContain("super-secret-key-value");
+  });
+});
+
+function listTsFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) out.push(...listTsFiles(full));
+    else if (name.endsWith(".ts")) out.push(full);
+  }
+  return out;
+}
+
+describe("Evolution sendText is gated", () => {
+  it("keeps the only sendText HTTP POST inside sendViaEvolution", () => {
+    const files = listTsFiles(join(process.cwd(), "supabase/functions"));
+    const sendTextFiles = files.filter((file) => {
+      const src = readFileSync(file, "utf8");
+      return src.includes("/message/sendText/") || src.includes("buildEvolutionSendTextUrl(");
+    });
+    const normalized = sendTextFiles.map((file) => file.replace(/\\/g, "/"));
+    expect(normalized.some((file) => file.endsWith("supabase/functions/_shared/whatsapp.ts"))).toBe(
+      true,
+    );
+    expect(normalized.some((file) => file.endsWith("supabase/functions/_shared/evolution-config.ts"))).toBe(
+      true,
+    );
+    const extra = normalized.filter(
+      (file) =>
+        !file.endsWith("supabase/functions/_shared/whatsapp.ts") &&
+        !file.endsWith("supabase/functions/_shared/evolution-config.ts"),
+    );
+    expect(extra).toEqual([]);
   });
 });
