@@ -232,15 +232,11 @@ for raw in text.splitlines():
     line = raw.rstrip("\n")
     if line.startswith("  Candidate:"):
         candidate = line.split(":", 1)[1].strip()
-    elif line.startswith("  Installed:"):
+        continue
+    if line.startswith("  Installed:"):
         installed = line.split(":", 1)[1].strip()
-    elif line.startswith("     ") and not line.startswith("        "):
-        parts = line.split()
-        if not parts:
-            continue
-        current = {"version": parts[0], "sources": []}
-        versions.append(current)
-    elif line.startswith("        ") and current is not None:
+        continue
+    if line.startswith("        ") and current is not None:
         parts = line.split()
         if len(parts) < 2:
             continue
@@ -249,6 +245,20 @@ for raw in text.splitlines():
         except ValueError:
             continue
         current["sources"].append({"priority": prio, "uri": parts[1]})
+        continue
+
+    # Linha de versao: "     2.11.7 500" (candidato) ou " *** 2.11.7 1001" (instalado).
+    parts = line.split()
+    if not parts:
+        continue
+    if parts[0] == "***":
+        parts = parts[1:]
+    elif not line.startswith("     "):
+        continue
+    if not parts or parts[0] in ("Installed:", "Candidate:", "Version"):
+        continue
+    current = {"version": parts[0], "sources": []}
+    versions.append(current)
 
 def host_of(uri):
     if uri.startswith("/") or uri == "/var/lib/dpkg/status":
