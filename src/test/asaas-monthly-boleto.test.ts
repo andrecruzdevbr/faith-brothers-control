@@ -318,10 +318,16 @@ describe("wiring — cron day 12 and generate-monthly-billings payload", () => {
   it("keeps workflow_dispatch auth_check from creating Asaas charges", () => {
     const cron = readFileSync(resolve(ROOT, ".github/workflows/billing-cron.yml"), "utf8");
     const authBlock = cron.split('= "auth_check" ]; then')[1]?.split("elif")[0] ?? "";
+    expect(authBlock).toContain("Nenhuma Edge Function chamada");
     expect(authBlock).toContain("Nao gera cobranca");
     expect(authBlock).not.toContain("generate-monthly-billings");
+    expect(authBlock).not.toContain("send-billing-whatsapp");
+    expect(authBlock).not.toContain("curl");
     expect(authBlock).not.toContain("force");
     expect(cron).not.toContain("ced46b69-4293-48dd-b04f-300bb835150f");
+    expect(cron).toContain('default: "auth_check"');
+    expect(cron).toContain("wojqjxtaqjasnfhbotxi");
+    expect(cron).toContain("apbksfaztfkxshxffpik");
   });
 
   it("schedules day 19 as overdue reminder, not a new charge", () => {

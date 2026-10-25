@@ -73,7 +73,8 @@ jobs:
 
           echo "Job=${JOB} dayBR=${DAY}"
           if [ "${JOB}" = "auth_check" ]; then
-            echo "auth_check: BASE_URL aponta a Production. Nao gera cobranca e nao envia WhatsApp."
+            echo "auth_check: CRON_SECRET presente; BASE_URL Production. Nenhuma Edge Function chamada."
+            echo "auth_check: Nao gera cobranca e nao envia WhatsApp."
             exit 0
           elif [ "${JOB}" = "generate" ]; then
             curl -fsS -X POST "${BASE_URL%/}/generate-monthly-billings" \
