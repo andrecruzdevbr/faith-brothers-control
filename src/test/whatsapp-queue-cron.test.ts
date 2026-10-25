@@ -21,8 +21,10 @@ describe("WhatsApp Queue cron workflow", () => {
     const cron = readWorkflow();
     const active = activeYaml(cron);
     expect(cron).toContain("name: WhatsApp Queue cron");
-    expect(active).toContain('cron: "*/5 * * * *"');
+    expect(active).toContain('cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"');
+    expect(active).not.toContain('cron: "*/5 * * * *"');
     expect(active).toMatch(/^\s*schedule:/m);
+    expect((active.match(/^\s+- cron:/gm) ?? []).length).toBe(1);
     expect(active).not.toMatch(/^on:\s*\{\s*\}/m);
     expect(active).not.toMatch(/\bworkflow_dispatch\b/);
     expect(active).not.toMatch(/\brepository_dispatch\b/);
