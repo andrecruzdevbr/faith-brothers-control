@@ -65,7 +65,7 @@ supabase backups list --project-ref wojqjxtaqjasnfhbotxi
 
 **Backup recuperável (Supabase nativo): NÃO.** Sem `inserted_at`, sem PITR. `backups restore` só aceita `--timestamp` de PITR.
 
-Há pipeline **código** de backup criptografado (`BACKUP_AUTOMATICO.md`): `pg_dump` 17 → `age` → R2/S3. Ainda **não opera** — faltam secrets e destino. O workflow deve ficar desativado até lá.
+Há pipeline **código** de backup criptografado (`BACKUP_AUTOMATICO.md`): `pg_dump` 17 → `age` → Google Drive (`drive.file`). S3/R2 permanece como `BACKUP_DEST=s3`. Ainda **não opera** até token Drive, chave age recuperável e senha do banco. O workflow deve ficar desativado até o teste isolado passar.
 
 Dump em claro não foi feito. Restore em Production não foi executado.
 
@@ -88,7 +88,7 @@ Não versionar valores. Conferir no Dashboard que existem, entre outros:
 
 GitHub Actions (crons): `SUPABASE_FUNCTIONS_BASE_URL` (Production) e `BILLING_CRON_SECRET`.
 
-Backup criptografado (ainda sem valores): `BACKUP_DB_PASSWORD`, `BACKUP_AGE_RECIPIENT`, `BACKUP_S3_*`. Ver `BACKUP_AUTOMATICO.md`. A chave privada age **não** é secret do GitHub.
+Backup criptografado (ainda sem valores): `BACKUP_DB_PASSWORD`, `BACKUP_AGE_RECIPIENT`, `BACKUP_DRIVE_TOKEN`. S3 legado: `BACKUP_S3_*`. Ver `BACKUP_AUTOMATICO.md`. A chave privada age **não** é secret do GitHub e **não** vai para o Drive.
 
 ## Rollback operacional (sem destruir dados)
 
