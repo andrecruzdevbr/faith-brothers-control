@@ -32,6 +32,7 @@ describe("Database encrypted backup workflow", () => {
     expect(cron).not.toContain("actions/upload-artifact");
     expect(cron).not.toMatch(/git\s+push/);
     expect(cron).not.toContain("github.token");
+    expect(cron).toContain("if: github.event_name == 'workflow_dispatch'");
   });
 
   it("encrypts with age and takes credentials only from Actions secrets", () => {
@@ -70,6 +71,8 @@ describe("Database encrypted backup workflow", () => {
     expect(script).toContain("drive.file");
     expect(script).toContain("FaithBrothers_Backups");
     expect(script).toContain("destino GitHub recusado");
+    expect(script).toContain("--schema=public");
+    expect(script).toContain("connect_ok");
     expect(script).toContain("--preflight");
     expect(script).toContain("--env-file");
     expect(script).not.toMatch(/-e ["']PGPASSWORD=/);

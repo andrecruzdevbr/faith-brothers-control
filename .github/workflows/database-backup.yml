@@ -6,9 +6,9 @@
 # Destino padrão: Google Drive (escopo drive.file, pasta FaithBrothers_Backups).
 # Destino legado S3: definir secret BACKUP_DEST=s3 e os BACKUP_S3_*.
 #
-# Agenda: 03:17 UTC diário (fora do minuto zero). GitHub só dispara
-# `schedule` no branch padrão. Manter `disabled_manually` até os secrets
-# abaixo existirem — senão o job falha no preflight sem dump.
+# Dump: somente schema public (parcial; não inclui Auth).
+# Agenda YAML existe, mas o job só corre em workflow_dispatch até o
+# cron ser autorizado. Manter disabled_manually quando não houver teste.
 #
 # Secrets obrigatórios (Drive):
 #   BACKUP_DB_PASSWORD
@@ -48,6 +48,7 @@ permissions:
 
 jobs:
   backup:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
