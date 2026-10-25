@@ -45,9 +45,8 @@ require_production() {
 
 preflight() {
   require_secret BACKUP_DB_PASSWORD
-  if [[ "$CONNECT_ONLY" == "1" ]]; then
-    require_secret BACKUP_DB_HOST
-  else
+  require_secret BACKUP_DB_HOST
+  if [[ "$CONNECT_ONLY" != "1" ]]; then
     require_secret BACKUP_AGE_RECIPIENT
   fi
 
@@ -137,14 +136,25 @@ configure_rclone() {
 
 upload_encrypted() {
   local extra=()
+  local retention_filter="${BACKUP_OBJECT_PREFIX}-*.dump.age"
   if [[ "$BACKUP_DEST" == "drive" ]]; then
     rclone mkdir "$DEST" --quiet
   else
     extra+=(--s3-no-check-bucket)
   fi
 
-  rclone copyto "$ENC_PATH" "${DEST}/${OBJECT_NAME}" "${extra[@]}" --quiet
-  rclone delete "$DEST" --min-age "${BACKUP_RETENTION_DAYS}d" --include "*.age" --quiet || true
+  rclone copyto "$ENC_PATH" "${DEST}/${OBJECT_NAME}" "${extra[@]}" --quiet \
+    || fail "upload falhou"
+
+  # Só depois de um upload bem-sucedido. Não apaga o objeto recém-enviado.
+  # Somente artefatos do workflow nesta pasta; profundidade 1.
+  rclone delete "$DEST" \
+    --min-age "${BACKUP_RETENTION_DAYS}d" \
+    --include "${retention_filter}" \
+    --exclude "${OBJECT_NAME}" \
+    --max-depth 1 \
+    --quiet \
+    || log "retention_warn delete_failed"
 }
 
 CONNECT_ONLY=0

@@ -33,6 +33,7 @@ describe("Database encrypted backup workflow", () => {
     expect(cron).not.toMatch(/git\s+push/);
     expect(cron).not.toContain("github.token");
     expect(cron).toContain("if: github.event_name == 'workflow_dispatch'");
+    expect(cron).toContain("github.event_name == 'schedule'");
     expect(cron).toContain("secrets.BACKUP_DB_HOST");
     expect(cron).toContain("--connect-only");
     expect(cron).toContain("inputs.mode == 'backup'");
@@ -71,6 +72,10 @@ describe("Database encrypted backup workflow", () => {
     expect(script).toContain("--no-password");
     expect(script).toContain("--entrypoint pg_dump");
     expect(script).toContain("rclone copyto");
+    expect(script).toContain('retention_filter="${BACKUP_OBJECT_PREFIX}-*.dump.age"');
+    expect(script).toContain("--max-depth 1");
+    expect(script).toContain("upload falhou");
+    expect(script).not.toContain('--include "*.age"');
     expect(script).toContain("BACKUP_DEST");
     expect(script).toContain("drive.file");
     expect(script).toContain("FaithBrothers_Backups");
