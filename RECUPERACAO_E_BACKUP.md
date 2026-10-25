@@ -63,9 +63,11 @@ supabase backups list --project-ref wojqjxtaqjasnfhbotxi
 | `physical_backup_data` | vazio |
 | `region` | `us-west-2` |
 
-**Backup recuperável: NÃO.** Sem `inserted_at`, sem PITR. `backups restore` só aceita `--timestamp` de PITR.
+**Backup recuperável (Supabase nativo): NÃO.** Sem `inserted_at`, sem PITR. `backups restore` só aceita `--timestamp` de PITR.
 
-Dump lógico (`db dump`) não foi feito: exportaria dados pessoais. Restore em Production não foi executado.
+Há pipeline **código** de backup criptografado (`BACKUP_AUTOMATICO.md`): `pg_dump` 17 → `age` → R2/S3. Ainda **não opera** — faltam secrets e destino. O workflow deve ficar desativado até lá.
+
+Dump em claro não foi feito. Restore em Production não foi executado.
 
 ### Recuperação, quando o plano permitir
 
@@ -84,7 +86,9 @@ Não versionar valores. Conferir no Dashboard que existem, entre outros:
 - `ASAAS_API_KEY` / webhook
 - chaves Supabase de service role (somente no projeto, nunca no Git)
 
-GitHub Actions: `SUPABASE_FUNCTIONS_BASE_URL` (Production) e `BILLING_CRON_SECRET`.
+GitHub Actions (crons): `SUPABASE_FUNCTIONS_BASE_URL` (Production) e `BILLING_CRON_SECRET`.
+
+Backup criptografado (ainda sem valores): `BACKUP_DB_PASSWORD`, `BACKUP_AGE_RECIPIENT`, `BACKUP_S3_*`. Ver `BACKUP_AUTOMATICO.md`. A chave privada age **não** é secret do GitHub.
 
 ## Rollback operacional (sem destruir dados)
 
