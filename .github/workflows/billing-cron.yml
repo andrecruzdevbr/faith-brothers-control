@@ -13,7 +13,8 @@
 # - Dia 19 08:00 BRT → send-billing-whatsapp scope=overdue_reminder
 #   (a regra exige data ESTRITAMENTE após o dia 18 do mês de vencimento;
 #    no dia 18 o job retornaria overdue_reminder_too_early para todos)
-# - workflow_dispatch permite teste manual sem esperar o dia
+# - workflow_dispatch: auth_check nao chama Edge Function (sem cobranca).
+#   generate e overdue exigem autorizacao explicita — criam cobranca/WhatsApp reais.
 
 name: Billing cron
 
@@ -72,11 +73,8 @@ jobs:
 
           echo "Job=${JOB} dayBR=${DAY}"
           if [ "${JOB}" = "auth_check" ]; then
-            # Valida x-cron-secret sem lote e sem WhatsApp; reutiliza billing de teste.
-            curl -fsS -X POST "${BASE_URL%/}/generate-monthly-billings" \
-              -H "Content-Type: application/json" \
-              -H "x-cron-secret: ${CRON_SECRET}" \
-              -d '{"force":true,"sendWhatsApp":false,"studentId":"ced46b69-4293-48dd-b04f-300bb835150f"}'
+            echo "auth_check: BASE_URL aponta a Production. Nao gera cobranca e nao envia WhatsApp."
+            exit 0
           elif [ "${JOB}" = "generate" ]; then
             curl -fsS -X POST "${BASE_URL%/}/generate-monthly-billings" \
               -H "Content-Type: application/json" \
