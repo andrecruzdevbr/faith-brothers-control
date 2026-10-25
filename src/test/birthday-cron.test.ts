@@ -27,6 +27,13 @@ describe("Birthday cron workflow", () => {
     expect(cron).not.toContain("process-whatsapp-queue");
   });
 
+  it("keeps send-birthday-whatsapp on the shared job with Production cron secret", () => {
+    const fn = readFileSync(resolve(ROOT, "supabase/functions/send-birthday-whatsapp/index.ts"), "utf8");
+    expect(fn).toContain("runBirthdayWhatsAppJob");
+    expect(fn).toContain('getEnv("BILLING_CRON_SECRET")');
+    expect(fn).toContain("x-cron-secret");
+  });
+
   it("refuses staging and requires Production wojqjxtaqjasnfhbotxi", () => {
     const cron = readWorkflow();
     expect(cron).toContain("wojqjxtaqjasnfhbotxi");
