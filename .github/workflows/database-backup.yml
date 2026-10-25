@@ -7,11 +7,13 @@
 # Destino legado S3: definir secret BACKUP_DEST=s3 e os BACKUP_S3_*.
 #
 # Dump: somente schema public (parcial; não inclui Auth).
-# Agenda YAML existe, mas o job só corre em workflow_dispatch até o
-# cron ser autorizado. Manter disabled_manually quando não houver teste.
+# Agenda: 17 3 * * * UTC = 00:17 America/Sao_Paulo (sem horário de verão).
+# Falhas aparecem em Actions; e-mail depende das notificações da conta GitHub.
 #
 # Secrets obrigatórios (Drive):
 #   BACKUP_DB_PASSWORD
+#   BACKUP_DB_HOST                Session Pooler aws-1 (obrigatório)
+#   BACKUP_DB_USER
 #   BACKUP_AGE_RECIPIENT          (chave pública age1...; a privada NÃO vai aqui)
 #   BACKUP_DRIVE_TOKEN            (JSON OAuth rclone; nunca no Git)
 #
@@ -25,7 +27,7 @@
 #   BACKUP_DEST                   default drive
 #   BACKUP_DRIVE_FOLDER           default FaithBrothers_Backups (fixo no script)
 #   BACKUP_DRIVE_CLIENT_ID / SECRET
-#   BACKUP_DB_HOST / PORT / USER
+#   BACKUP_DB_PORT
 #   BACKUP_S3_REGION / PROVIDER
 #   BACKUP_RETENTION_DAYS         default 14
 #   BACKUP_OBJECT_PREFIX          default faith-brothers-prod
@@ -38,6 +40,14 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: connect = login test only; backup = encrypted dump
+        type: choice
+        options:
+          - connect
+          - backup
+        default: connect
 
 concurrency:
   group: database-encrypted-backup
@@ -47,8 +57,43 @@ permissions:
   contents: read
 
 jobs:
+  connect:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode != 'backup'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: DNS Session Pooler aws-1
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import socket
+          host = "aws-1-us-west-2.pooler.supabase.com"
+          ips = sorted({item[4][0] for item in socket.getaddrinfo(host, 5432)})
+          if not ips:
+              raise SystemExit("dns_fail")
+          print("dns_ok pooler_cluster=aws-1 ips=" + ",".join(ips))
+          PY
+
+      - name: PostgreSQL login test
+        env:
+          BACKUP_DB_PASSWORD: ${{ secrets.BACKUP_DB_PASSWORD }}
+          BACKUP_DB_HOST: ${{ secrets.BACKUP_DB_HOST }}
+          BACKUP_DB_PORT: ${{ secrets.BACKUP_DB_PORT }}
+          BACKUP_DB_USER: ${{ secrets.BACKUP_DB_USER }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BACKUP_DB_HOST:-}" ]; then
+            echo "backup_error: BACKUP_DB_HOST vazio"
+            exit 1
+          fi
+          echo "backup_db_host_secret=set"
+          bash scripts/backup-production-encrypted.sh --connect-only
+
   backup:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'backup')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

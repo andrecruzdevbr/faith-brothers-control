@@ -65,9 +65,9 @@ supabase backups list --project-ref wojqjxtaqjasnfhbotxi
 
 **Backup recuperável (Supabase nativo): NÃO.** Sem `inserted_at`, sem PITR. `backups restore` só aceita `--timestamp` de PITR.
 
-Há pipeline de backup criptografado (`BACKUP_AUTOMATICO.md`): `pg_dump` 17 do schema **`public` apenas** → `age` → Google Drive. **Parcial:** não inclui Auth. S3/R2 permanece em `BACKUP_DEST=s3`. O cron diário não está autorizado (`workflow_dispatch` somente).
+Há pipeline de backup criptografado (`BACKUP_AUTOMATICO.md`): cron **00:17 Brasília** (`17 3 * * *` UTC), `pg_dump` 17 do schema **`public` apenas** → `age` → Google Drive `FaithBrothers_Backups`, retenção 14 dias. **Parcial:** não inclui Auth. S3/R2 permanece em `BACKUP_DEST=s3`.
 
-Dump em claro não foi feito. Restore em Production não foi executado.
+Último dump **manual validado:** `faith-brothers-prod-20261025T185214Z.dump.age` (run `40223268588`). Restore isolado em PostgreSQL 17.11 recuperou 23/23 tabelas; FKs de Auth não entram neste arquivo. Restore em Production **não** foi executado. **Não** é recuperação integral do Control.
 
 ### Recuperação, quando o plano permitir
 
@@ -88,7 +88,7 @@ Não versionar valores. Conferir no Dashboard que existem, entre outros:
 
 GitHub Actions (crons): `SUPABASE_FUNCTIONS_BASE_URL` (Production) e `BILLING_CRON_SECRET`.
 
-Backup criptografado (ainda sem valores): `BACKUP_DB_PASSWORD`, `BACKUP_AGE_RECIPIENT`, `BACKUP_DRIVE_TOKEN`. S3 legado: `BACKUP_S3_*`. Ver `BACKUP_AUTOMATICO.md`. A chave privada age **não** é secret do GitHub e **não** vai para o Drive.
+Backup criptografado: `BACKUP_DB_PASSWORD`, `BACKUP_DB_USER`, `BACKUP_DB_HOST`, `BACKUP_AGE_RECIPIENT`, `BACKUP_DRIVE_TOKEN`. S3 legado: `BACKUP_S3_*`. Ver `BACKUP_AUTOMATICO.md`. Session Pooler: `aws-1-us-west-2.pooler.supabase.com:5432` (não `aws-0`). A chave privada age **não** é secret do GitHub; cópia em claro só local; envelope 7z em `FaithBrothers_KeyEnvelope`.
 
 ## Rollback operacional (sem destruir dados)
 

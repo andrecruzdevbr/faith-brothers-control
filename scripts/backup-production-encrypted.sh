@@ -8,9 +8,13 @@ umask 077
 PRODUCTION_REF="wojqjxtaqjasnfhbotxi"
 STAGING_REF="apbksfaztfkxshxffpik"
 EXPECTED_DB="postgres"
-DEFAULT_HOST="aws-0-us-west-2.pooler.supabase.com"
+# Session Pooler copiado do painel/CLI de Production. aws-0 NÃO é seguro:
+# o índice do cluster não se infere da região (docs Supabase).
+DEFAULT_HOST="aws-1-us-west-2.pooler.supabase.com"
 DEFAULT_PORT="5432"
 DEFAULT_USER="postgres.${PRODUCTION_REF}"
+POOLER_HOST_RE='^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$'
+POOLER_USER_RE="^[A-Za-z_][A-Za-z0-9_]*\\.${PRODUCTION_REF}$"
 DEFAULT_RETENTION_DAYS="14"
 DEFAULT_DRIVE_FOLDER="FaithBrothers_Backups"
 
@@ -41,7 +45,10 @@ require_production() {
 
 preflight() {
   require_secret BACKUP_DB_PASSWORD
-  require_secret BACKUP_AGE_RECIPIENT
+  require_secret BACKUP_DB_HOST
+  if [[ "$CONNECT_ONLY" != "1" ]]; then
+    require_secret BACKUP_AGE_RECIPIENT
+  fi
 
   if [[ -z "${BACKUP_DEST:-}" ]]; then
     BACKUP_DEST="drive"
@@ -60,32 +67,45 @@ preflight() {
   [[ "$BACKUP_DB_PORT" =~ ^[0-9]+$ ]] || fail "BACKUP_DB_PORT invalido"
   [[ "$BACKUP_RETENTION_DAYS" =~ ^[1-9][0-9]*$ ]] || fail "BACKUP_RETENTION_DAYS invalido"
   [[ "$BACKUP_DRIVE_FOLDER" == "FaithBrothers_Backups" ]] || fail "pasta Drive recusada"
+  [[ "$BACKUP_DB_HOST" =~ $POOLER_HOST_RE ]] || fail "BACKUP_DB_HOST nao e Session Pooler"
+  [[ "$BACKUP_DB_HOST" != "aws-0-us-west-2.pooler.supabase.com" ]] || fail "BACKUP_DB_HOST aws-0 recusado para este projeto"
+  [[ ! "$BACKUP_DB_USER" =~ [[:space:]] ]] || fail "BACKUP_DB_USER contem espaco"
+  [[ "$BACKUP_DB_USER" =~ $POOLER_USER_RE ]] || fail "BACKUP_DB_USER deve ser role.projectref"
 
   refuse_staging "$BACKUP_DB_HOST $BACKUP_DB_USER $BACKUP_OBJECT_PREFIX $BACKUP_DRIVE_FOLDER"
   require_production "$BACKUP_DB_USER"
 
-  printf '%s' "$BACKUP_AGE_RECIPIENT" | grep -q '^age1' || fail "BACKUP_AGE_RECIPIENT deve ser chave publica age1..."
-
-  if [[ "$BACKUP_DEST" == "drive" ]]; then
-    require_secret BACKUP_DRIVE_TOKEN
-  elif [[ "$BACKUP_DEST" == "s3" ]]; then
-    require_secret BACKUP_S3_ENDPOINT
-    require_secret BACKUP_S3_BUCKET
-    require_secret BACKUP_S3_ACCESS_KEY_ID
-    require_secret BACKUP_S3_SECRET_ACCESS_KEY
-    refuse_staging "$BACKUP_S3_ENDPOINT $BACKUP_S3_BUCKET"
-    if printf '%s' "$BACKUP_S3_ENDPOINT $BACKUP_S3_BUCKET" | grep -qiE 'github\.com|githubusercontent\.com|ghcr\.io'; then
-      fail "destino GitHub recusado"
-    fi
+  if [[ "$BACKUP_DB_HOST" == "aws-1-us-west-2.pooler.supabase.com" ]]; then
+    POOLER_CLUSTER="aws-1"
   else
-    fail "BACKUP_DEST recusado"
+    POOLER_CLUSTER="other"
   fi
 
-  command -v age >/dev/null || fail "age nao instalado"
-  command -v rclone >/dev/null || fail "rclone nao instalado"
+  if [[ "$CONNECT_ONLY" != "1" ]]; then
+    printf '%s' "$BACKUP_AGE_RECIPIENT" | grep -q '^age1' || fail "BACKUP_AGE_RECIPIENT deve ser chave publica age1..."
+
+    if [[ "$BACKUP_DEST" == "drive" ]]; then
+      require_secret BACKUP_DRIVE_TOKEN
+    elif [[ "$BACKUP_DEST" == "s3" ]]; then
+      require_secret BACKUP_S3_ENDPOINT
+      require_secret BACKUP_S3_BUCKET
+      require_secret BACKUP_S3_ACCESS_KEY_ID
+      require_secret BACKUP_S3_SECRET_ACCESS_KEY
+      refuse_staging "$BACKUP_S3_ENDPOINT $BACKUP_S3_BUCKET"
+      if printf '%s' "$BACKUP_S3_ENDPOINT $BACKUP_S3_BUCKET" | grep -qiE 'github\.com|githubusercontent\.com|ghcr\.io'; then
+        fail "destino GitHub recusado"
+      fi
+    else
+      fail "BACKUP_DEST recusado"
+    fi
+
+    command -v age >/dev/null || fail "age nao instalado"
+    command -v rclone >/dev/null || fail "rclone nao instalado"
+  fi
+
   command -v docker >/dev/null || fail "docker nao instalado"
 
-  log "preflight_ok project=${PRODUCTION_REF} host_ok=true encrypt=age dest=${BACKUP_DEST} retention_days=${BACKUP_RETENTION_DAYS}"
+  log "preflight_ok project=${PRODUCTION_REF} pooler_cluster=${POOLER_CLUSTER} host_secret=set encrypt=age dest=${BACKUP_DEST} retention_days=${BACKUP_RETENTION_DAYS}"
 }
 
 configure_rclone() {
@@ -116,17 +136,31 @@ configure_rclone() {
 
 upload_encrypted() {
   local extra=()
+  local retention_filter="${BACKUP_OBJECT_PREFIX}-*.dump.age"
   if [[ "$BACKUP_DEST" == "drive" ]]; then
     rclone mkdir "$DEST" --quiet
   else
     extra+=(--s3-no-check-bucket)
   fi
 
-  rclone copyto "$ENC_PATH" "${DEST}/${OBJECT_NAME}" "${extra[@]}" --quiet
-  rclone delete "$DEST" --min-age "${BACKUP_RETENTION_DAYS}d" --include "*.age" --quiet || true
+  rclone copyto "$ENC_PATH" "${DEST}/${OBJECT_NAME}" "${extra[@]}" --quiet \
+    || fail "upload falhou"
+
+  # Só depois de um upload bem-sucedido. Não apaga o objeto recém-enviado.
+  # Somente artefatos do workflow nesta pasta; profundidade 1.
+  rclone delete "$DEST" \
+    --min-age "${BACKUP_RETENTION_DAYS}d" \
+    --include "${retention_filter}" \
+    --exclude "${OBJECT_NAME}" \
+    --max-depth 1 \
+    --quiet \
+    || log "retention_warn delete_failed"
 }
 
-if [[ "${1:-}" == "--preflight" ]]; then
+CONNECT_ONLY=0
+if [[ "${1:-}" == "--connect-only" ]]; then
+  CONNECT_ONLY=1
+elif [[ "${1:-}" == "--preflight" ]]; then
   preflight
   exit 0
 fi
@@ -154,9 +188,9 @@ printf 'PGPASSWORD=%s\n' "$BACKUP_DB_PASSWORD" > "$PGENV"
 printf 'PGSSLMODE=require\n' >> "$PGENV"
 printf 'PGOPTIONS=-c default_transaction_read_only=on\n' >> "$PGENV"
 
-log "connect_start sslmode=require read_only=true schema=public"
+log "connect_start pooler_cluster=${POOLER_CLUSTER} port=${BACKUP_DB_PORT} db=${BACKUP_DB_NAME} sslmode=require read_only=true schema=public"
 
-docker run --rm \
+PSQL_OUT="$(docker run --rm \
   --user "$RUNNER_USER" \
   --entrypoint psql \
   --env-file "$PGENV" \
@@ -167,10 +201,18 @@ docker run --rm \
   --dbname="$BACKUP_DB_NAME" \
   --no-password \
   --set=ON_ERROR_STOP=1 \
-  -c "select current_user as backup_user, current_database() as db, current_setting('transaction_read_only') as txn_ro;" \
-  >/dev/null
+  --tuples-only \
+  --no-align \
+  -c "select current_user || ' ' || current_database() || ' ' || current_setting('transaction_read_only');")"
 
-log "connect_ok schema=public"
+PSQL_OUT="$(printf '%s' "$PSQL_OUT" | tr -d '\r' | awk 'NF { print; exit }')"
+log "connect_ok schema=public sslmode=require session=${PSQL_OUT}"
+
+if [[ "$CONNECT_ONLY" == "1" ]]; then
+  [[ "$POOLER_CLUSTER" == "aws-1" ]] || fail "BACKUP_DB_HOST nao aponta ao Session Pooler aws-1"
+  log "connect_only_ok no_dump=true pooler_cluster=${POOLER_CLUSTER}"
+  exit 0
+fi
 
 log "dump_start format=custom sslmode=require read_only=true schema=public"
 

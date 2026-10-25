@@ -1,33 +1,72 @@
 # Backup automático criptografado — Faith Brothers Control
 
-**Estado:** destino Google Drive no código; dump **parcial** (`public` apenas); cron **não** autorizado.  
-O job só executa em `workflow_dispatch`. Tag `v1.0.0` não é destino de dump.
+**Estado:** cron diário **habilitado** (schema `public` apenas). Destino Google Drive. Tag `v1.0.0` não é destino de dump.
+
+## Agenda
+
+| Item | Valor |
+|------|--------|
+| Workflow | `Database encrypted backup` |
+| Cron | `17 3 * * *` UTC |
+| Brasília | **00:17** (`America/Sao_Paulo`, sem horário de verão) |
+| Manual | `workflow_dispatch` com `mode=backup` (dump) ou `mode=connect` (só login) |
+| Concorrência | grupo `database-encrypted-backup`, sem cancelar o job em curso |
+
+Último backup **manual validado** (não apagar até haver outro sucesso e 14 dias):
+
+- Run: https://github.com/andrecruzdevbr/faith-brothers-control/actions/runs/40223268588
+- Arquivo: `faith-brothers-prod-20261025T185214Z.dump.age` (260 412 bytes)
+- Restore isolado: PostgreSQL 17.11, 23/23 tabelas, dados ok; FKs/`authenticated` do Auth ausentes
 
 ## Escopo (parcial)
 
-O `pg_dump` copia **somente o schema `public`**: tabelas, dados, sequences, funções e tipos desse schema.
+O `pg_dump` copia **somente o schema `public`**: tabelas, dados, funções, tipos e índices desse schema. Este dump **não** contém sequences (`SEQUENCE`/`IDENTITY`).
 
 **Não inclui** Supabase Auth (`auth.users` e demais objetos de `auth`), Storage, cron, vault nem outros schemas internos.
 
-Um restore deste arquivo **não** recria logins. Não é backup completo do Faith Brothers Control.
+Um restore **não** recria logins nem políticas que dependem da role `authenticated`. **Não** é backup completo do Faith Brothers Control.
 
-Role de leitura: `fb_backup` (pooler session, usuário `fb_backup.wojqjxtaqjasnfhbotxi`). Sem `pg_read_all_data`.
+Role de leitura: `fb_backup` (Session Pooler, usuário `fb_backup.wojqjxtaqjasnfhbotxi`). Sem `pg_read_all_data`.
+
+Conexão: secret `BACKUP_DB_HOST` = Session Pooler `aws-1-us-west-2.pooler.supabase.com`, porta `5432`, database `postgres`, `sslmode=require`. `aws-0` é recusado.
 
 ## Fluxo
 
-`pg_dump` Postgres 17 (SSL, sessão read-only, `--schema=public`) → `age` → rclone Drive (`FaithBrothers_Backups`, `drive.file`) → `shred` dos temporários.
+`pg_dump` Postgres 17 (SSL, sessão read-only, `--schema=public`) → `age` → rclone Drive (`FaithBrothers_Backups`, escopo `drive.file`) → `shred` dos temporários.
 
-Retenção: apaga `.age` com mais de 14 dias nessa pasta.
+Falha em dump, criptografia ou upload **encerra o job**. A retenção só corre depois de um upload bem-sucedido.
 
-Secrets (GitHub Actions, nunca no Git): `BACKUP_DB_PASSWORD`, `BACKUP_DB_USER`, `BACKUP_AGE_RECIPIENT`, `BACKUP_DRIVE_TOKEN`.
+## Retenção (14 dias)
+
+Após um upload ok, apaga **somente** `faith-brothers-prod-*.dump.age` com mais de 14 dias **dentro de** `FaithBrothers_Backups` (`--max-depth 1`). Não apaga o objeto recém-enviado. Não toca em outras pastas (incluindo o envelope da chave).
+
+Se o dump/upload falhar, a limpeza **não** executa — o último `.dump.age` válido permanece.
+
+## Secrets (GitHub Actions, nunca no Git)
+
+`BACKUP_DB_PASSWORD`, `BACKUP_DB_USER`, `BACKUP_DB_HOST`, `BACKUP_AGE_RECIPIENT`, `BACKUP_DRIVE_TOKEN`.
+
+A chave **privada** age fica no arquivo local do operador. Segunda cópia: arquivo **7z AES-256** na pasta Drive `FaithBrothers_KeyEnvelope` (não é o dump; não está em `FaithBrothers_Backups`). A privada **não** é secret do GitHub.
 
 S3/R2 permanece em `BACKUP_DEST=s3`.
+
+## Monitoramento (gratuito)
+
+Falhas aparecem no histórico do workflow (conclusion `failure`), sem PII nos logs.
+
+Como conferir a última execução **bem-sucedida**:
+
+1. https://github.com/andrecruzdevbr/faith-brothers-control/actions/workflows/database-backup.yml
+2. Ou: `gh run list --workflow "Database encrypted backup" --limit 10`
+
+E-mail automático de falha depende de **Settings → Notifications → Actions** na conta GitHub. Este repositório **não** configura Slack, PagerDuty nem add-on pago. Não afirmar que o e-mail está ligado sem conferir essa opção da conta.
 
 ## Restore isolado (nunca neste workflow)
 
 ```bash
 age -d -i age-backup-private.txt backup.dump.age > backup.dump
+pg_restore --list backup.dump
 pg_restore --no-owner --no-acl --dbname=... backup.dump
 ```
 
-Restore em Production exige autorização explícita. Não automatizar.
+Usar PostgreSQL 17 **fora** de Production. Restore em Production exige autorização explícita. Não automatizar.

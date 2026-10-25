@@ -33,11 +33,16 @@ describe("Database encrypted backup workflow", () => {
     expect(cron).not.toMatch(/git\s+push/);
     expect(cron).not.toContain("github.token");
     expect(cron).toContain("if: github.event_name == 'workflow_dispatch'");
+    expect(cron).toContain("github.event_name == 'schedule'");
+    expect(cron).toContain("secrets.BACKUP_DB_HOST");
+    expect(cron).toContain("--connect-only");
+    expect(cron).toContain("inputs.mode == 'backup'");
   });
 
   it("encrypts with age and takes credentials only from Actions secrets", () => {
     const cron = read(WORKFLOW);
     expect(cron).toContain("secrets.BACKUP_DB_PASSWORD");
+    expect(cron).toContain("secrets.BACKUP_DB_HOST");
     expect(cron).toContain("secrets.BACKUP_AGE_RECIPIENT");
     expect(cron).toContain("secrets.BACKUP_DRIVE_TOKEN");
     expect(cron).toContain("secrets.BACKUP_S3_ENDPOINT");
@@ -67,6 +72,10 @@ describe("Database encrypted backup workflow", () => {
     expect(script).toContain("--no-password");
     expect(script).toContain("--entrypoint pg_dump");
     expect(script).toContain("rclone copyto");
+    expect(script).toContain('retention_filter="${BACKUP_OBJECT_PREFIX}-*.dump.age"');
+    expect(script).toContain("--max-depth 1");
+    expect(script).toContain("upload falhou");
+    expect(script).not.toContain('--include "*.age"');
     expect(script).toContain("BACKUP_DEST");
     expect(script).toContain("drive.file");
     expect(script).toContain("FaithBrothers_Backups");
@@ -76,5 +85,12 @@ describe("Database encrypted backup workflow", () => {
     expect(script).toContain("--preflight");
     expect(script).toContain("--env-file");
     expect(script).not.toMatch(/-e ["']PGPASSWORD=/);
+    expect(script).toContain("aws-1-us-west-2.pooler.supabase.com");
+    expect(script).toContain("BACKUP_DB_HOST aws-0 recusado");
+    expect(script).toContain("BACKUP_DB_USER deve ser role.projectref");
+    expect(script).toContain("connect_start pooler_cluster=");
+    expect(script).toContain("--connect-only");
+    expect(script).toContain("connect_only_ok");
+    expect(script).not.toMatch(/^DEFAULT_HOST="aws-0-/m);
   });
 });
