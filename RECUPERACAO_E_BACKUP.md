@@ -47,35 +47,31 @@ As demais funções listadas em `ENTREGA_V1.0.md` não foram republicadas no rel
 
 Rollback Vercel Production para o deployment do SHA desejado (`ddb3626` ou o commit da tag). Não precisa rebuild se o deployment ainda existir.
 
-## Banco de dados — o que foi verificado
+## Banco de dados — o que foi verificado (2026-10-25)
 
-Comando oficial:
+Projeto `faith-brothers-prod` / `wojqjxtaqjasnfhbotxi`: `ACTIVE_HEALTHY`, Postgres 17.6.1.127. O CLI **não informa o plano** (Free vs Pro).
 
 ```text
 supabase backups list --project-ref wojqjxtaqjasnfhbotxi
 ```
 
-Resultado deste fechamento:
-
-| Campo | Valor observado |
-|-------|-----------------|
-| `walg_enabled` | `true` (mecanismo de backup físico WAL-G presente) |
-| `pitr_enabled` | `false` (PITR **não** disponível) |
+| Campo | Valor |
+|-------|--------|
+| `walg_enabled` | `true` |
+| `pitr_enabled` | `false` |
 | `backups` | `null` |
-| `physical_backup_data` | objeto vazio |
+| `physical_backup_data` | vazio |
 | `region` | `us-west-2` |
 
-Não foi gerado dump lógico. Não foram exportados dados de alunos. Não foi executado `backups restore`.
+**Backup recuperável: NÃO.** Sem `inserted_at`, sem PITR. `backups restore` só aceita `--timestamp` de PITR.
 
-**Limitação:** não há snapshot listado com timestamp neste comando, e PITR está desligado. Não afirmar que existe um ponto de restauração recuperável até alguém com acesso ao Dashboard Supabase confirmar backups diários do plano e, se necessário, habilitar PITR (isso é mudança de configuração — fora deste fechamento).
+Dump lógico (`db dump`) não foi feito: exportaria dados pessoais. Restore em Production não foi executado.
 
-Restauração PITR, se um dia for ligada:
+### Recuperação, quando o plano permitir
 
-```text
-supabase backups restore --help
-```
-
-Exige timestamp, autorização e aceita interrupção de serviço. Não usar sem ordem explícita.
+- **Pro+ sem PITR:** Dashboard → Database → Backups → restore do snapshot diário (retenção 7/14/30 dias conforme plano). Downtime. Confirmar no Dashboard antes de declarar backup.
+- **Com PITR (pago):** `supabase backups restore --project-ref wojqjxtaqjasnfhbotxi --timestamp <epoch>`. Projeto fica inacessível durante o restore.
+- Git/tag **não** restauram o banco.
 
 ## Secrets e configuração (sem valores)
 
