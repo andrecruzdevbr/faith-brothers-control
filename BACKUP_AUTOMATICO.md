@@ -1,6 +1,6 @@
 # Backup automático criptografado — Faith Brothers Control
 
-**Estado:** código publicado; **job desativado** até os secrets existirem.  
+**Estado:** código publicado; **job desativado** até autenticação Drive, chave age recuperável e senha do banco existirem.  
 **Não** usa GitHub Artifacts nem o repositório. Tag `v1.0.0` não é destino de dump.
 
 ## O que já está no Git
@@ -8,61 +8,26 @@
 - Workflow: `.github/workflows/database-backup.yml` (`17 3 * * *` UTC + `workflow_dispatch`)
 - Script: `scripts/backup-production-encrypted.sh`
 - Produção fixa: `wojqjxtaqjasnfhbotxi`. Staging `apbksfaztfkxshxffpik` é recusado.
-- Fluxo: `pg_dump` (Postgres 17, custom, SSL, somente leitura) → `age` → rclone S3 → apaga temporários (`shred`).
-- Retenção: apaga objetos `.age` com mais de 14 dias no prefixo.
+- Fluxo: `pg_dump` (Postgres 17, custom, SSL, somente leitura) → `age` → rclone → apaga temporários (`shred`).
+- Destino padrão: Google Drive, pasta `FaithBrothers_Backups`, escopo `drive.file` (só arquivos deste app).
+- Destino legado S3/R2: `BACKUP_DEST=s3` + secrets `BACKUP_S3_*` (código preservado).
+- Retenção: apaga objetos `.age` com mais de 14 dias no prefixo/pasta.
 
-O GitHub deste repositório **não** tem destino de armazenamento nem senha do banco (secrets atuais: só `BILLING_CRON_SECRET` e `SUPABASE_FUNCTIONS_BASE_URL`). Por isso o workflow deve permanecer `disabled_manually` até a configuração abaixo.
+## Destino atual: Google Drive (conta gratuita)
 
-## Configuração que falta (gratuita, fora do GitHub)
+Sem cartão. Cota típica 15 GB compartilhada com Gmail/Fotos.
 
-### 1. Chave age (fica fora do bucket)
-
-Na máquina do operador, **uma vez**:
-
-```bash
-age-keygen -o age-backup-private.txt
-```
-
-- A linha `age1...` (pública) → GitHub secret `BACKUP_AGE_RECIPIENT`
-- O arquivo privado → cofre/offline. **Não** sobe no bucket nem no Git.
-
-### 2. Bucket S3-compatível gratuito
-
-Cloudflare R2 (plano gratuito, sem egress para download razoável) ou Backblaze B2 com API S3.
-
-Criar:
-
-- bucket privado (ex.: `faith-brothers-db-backups`)
-- access key **somente** desse bucket (não usar chave pública de API do app)
-
-### 3. Senha do banco Production
-
-Dashboard Supabase → Project Settings → Database → senha do role `postgres`.  
-Colar só em GitHub secret `BACKUP_DB_PASSWORD`. Não commitar.
-
-Pooler session (padrão do script):
-
-- host `aws-0-us-west-2.pooler.supabase.com`
-- user `postgres.wojqjxtaqjasnfhbotxi`
-- port `5432`
-- database `postgres`
-- `sslmode=require`
-
-### 4. GitHub Actions secrets
+Secrets:
 
 | Secret | Obrigatório |
 |--------|-------------|
 | `BACKUP_DB_PASSWORD` | sim |
 | `BACKUP_AGE_RECIPIENT` | sim (`age1...`) |
-| `BACKUP_S3_ENDPOINT` | sim (`https://<accountid>.r2.cloudflarestorage.com`) |
-| `BACKUP_S3_BUCKET` | sim |
-| `BACKUP_S3_ACCESS_KEY_ID` | sim |
-| `BACKUP_S3_SECRET_ACCESS_KEY` | sim |
-| `BACKUP_DB_HOST` / `PORT` / `USER` | não (há default Production) |
-| `BACKUP_S3_PROVIDER` | não (default `Cloudflare`; `Other` para B2) |
-| `BACKUP_RETENTION_DAYS` | não (default 14) |
+| `BACKUP_DRIVE_TOKEN` | sim (JSON OAuth rclone; nunca no Git) |
+| `BACKUP_DEST` | não (vazio = `drive`) |
+| `BACKUP_S3_*` | só se `BACKUP_DEST=s3` |
 
-Depois: **Enable** o workflow `Database encrypted backup` e um `workflow_dispatch` de prova. O log deve mostrar `backup_ok object=... encrypted_bytes=...` sem senha.
+A chave **privada** age fica no cofre/offline do proprietário. **Não** vai para o Drive nem para o GitHub.
 
 ## Restore (manual, nunca neste workflow)
 
@@ -75,4 +40,4 @@ Restore em Production exige autorização explícita e downtime. Não automatiza
 
 ## Falha segura
 
-Sem qualquer secret obrigatório o script sai com `backup_error: secret ausente: NOME` **antes** do dump.
+Sem secret obrigatório o script sai com `backup_error: secret ausente: NOME` **antes** do dump.
