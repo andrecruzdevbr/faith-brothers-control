@@ -50,9 +50,18 @@ Fila: contar `whatsapp_messages` com status `pending`/`failed` e `attempts < 3`.
 
 ## Fila WhatsApp
 
-Workflow ativo. Agenda deslocada do minuto zero. Se não houver `event=schedule`, tratar como **pendência externa do GitHub**. Não mudar o cron de novo. Não criar segundo agendador. Não disparar na mão.
+Workflow **active**. Cron deslocado do minuto zero. Validado em 2026-10-25 com dois `event=schedule` success (`processed:0`). Não criar segundo agendador. Não disparar na mão.
 
-A Edge Function `process-whatsapp-queue` recusa envio fora da allowlist e não envia se a fila estiver vazia.
+A Edge Function recusa envio fora da allowlist e não envia se a fila estiver vazia.
+
+## Sequência de ativação (autorização por passo — não executar aqui)
+
+Detalhe em `CONCLUSAO_OPERACIONAL_V1.0.md`.
+
+1. Apagar `WHATSAPP_ALLOWED_RECIPIENTS` (nunca deixar vazio).
+2. Enable Birthday; na primeira falha: Disable.
+3. Enable Billing em outra janela; `auth_check` primeiro; na primeira falha: Disable.
+4. Generate/overdue manuais exigem autorização extra.
 
 ## Billing (desligado)
 
