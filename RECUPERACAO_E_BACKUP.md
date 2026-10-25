@@ -65,7 +65,7 @@ supabase backups list --project-ref wojqjxtaqjasnfhbotxi
 
 **Backup recuperável (Supabase nativo): NÃO.** Sem `inserted_at`, sem PITR. `backups restore` só aceita `--timestamp` de PITR.
 
-Há pipeline **código** de backup criptografado (`BACKUP_AUTOMATICO.md`): `pg_dump` 17 → `age` → Google Drive (`drive.file`). S3/R2 permanece como `BACKUP_DEST=s3`. Ainda **não opera** até token Drive, chave age recuperável e senha do banco. O workflow deve ficar desativado até o teste isolado passar.
+Há pipeline de backup criptografado (`BACKUP_AUTOMATICO.md`): `pg_dump` 17 do schema **`public` apenas** → `age` → Google Drive. **Parcial:** não inclui Auth. S3/R2 permanece em `BACKUP_DEST=s3`. O cron diário não está autorizado (`workflow_dispatch` somente).
 
 Dump em claro não foi feito. Restore em Production não foi executado.
 

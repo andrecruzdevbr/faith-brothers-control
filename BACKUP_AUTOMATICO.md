@@ -1,43 +1,33 @@
 # Backup automático criptografado — Faith Brothers Control
 
-**Estado:** código publicado; **job desativado** até autenticação Drive, chave age recuperável e senha do banco existirem.  
-**Não** usa GitHub Artifacts nem o repositório. Tag `v1.0.0` não é destino de dump.
+**Estado:** destino Google Drive no código; dump **parcial** (`public` apenas); cron **não** autorizado.  
+O job só executa em `workflow_dispatch`. Tag `v1.0.0` não é destino de dump.
 
-## O que já está no Git
+## Escopo (parcial)
 
-- Workflow: `.github/workflows/database-backup.yml` (`17 3 * * *` UTC + `workflow_dispatch`)
-- Script: `scripts/backup-production-encrypted.sh`
-- Produção fixa: `wojqjxtaqjasnfhbotxi`. Staging `apbksfaztfkxshxffpik` é recusado.
-- Fluxo: `pg_dump` (Postgres 17, custom, SSL, somente leitura) → `age` → rclone → apaga temporários (`shred`).
-- Destino padrão: Google Drive, pasta `FaithBrothers_Backups`, escopo `drive.file` (só arquivos deste app).
-- Destino legado S3/R2: `BACKUP_DEST=s3` + secrets `BACKUP_S3_*` (código preservado).
-- Retenção: apaga objetos `.age` com mais de 14 dias no prefixo/pasta.
+O `pg_dump` copia **somente o schema `public`**: tabelas, dados, sequences, funções e tipos desse schema.
 
-## Destino atual: Google Drive (conta gratuita)
+**Não inclui** Supabase Auth (`auth.users` e demais objetos de `auth`), Storage, cron, vault nem outros schemas internos.
 
-Sem cartão. Cota típica 15 GB compartilhada com Gmail/Fotos.
+Um restore deste arquivo **não** recria logins. Não é backup completo do Faith Brothers Control.
 
-Secrets:
+Role de leitura: `fb_backup` (pooler session, usuário `fb_backup.wojqjxtaqjasnfhbotxi`). Sem `pg_read_all_data`.
 
-| Secret | Obrigatório |
-|--------|-------------|
-| `BACKUP_DB_PASSWORD` | sim |
-| `BACKUP_AGE_RECIPIENT` | sim (`age1...`) |
-| `BACKUP_DRIVE_TOKEN` | sim (JSON OAuth rclone; nunca no Git) |
-| `BACKUP_DEST` | não (vazio = `drive`) |
-| `BACKUP_S3_*` | só se `BACKUP_DEST=s3` |
+## Fluxo
 
-A chave **privada** age fica no cofre/offline do proprietário. **Não** vai para o Drive nem para o GitHub.
+`pg_dump` Postgres 17 (SSL, sessão read-only, `--schema=public`) → `age` → rclone Drive (`FaithBrothers_Backups`, `drive.file`) → `shred` dos temporários.
 
-## Restore (manual, nunca neste workflow)
+Retenção: apaga `.age` com mais de 14 dias nessa pasta.
+
+Secrets (GitHub Actions, nunca no Git): `BACKUP_DB_PASSWORD`, `BACKUP_DB_USER`, `BACKUP_AGE_RECIPIENT`, `BACKUP_DRIVE_TOKEN`.
+
+S3/R2 permanece em `BACKUP_DEST=s3`.
+
+## Restore isolado (nunca neste workflow)
 
 ```bash
 age -d -i age-backup-private.txt backup.dump.age > backup.dump
-pg_restore --dbname=... --no-owner backup.dump
+pg_restore --no-owner --no-acl --dbname=... backup.dump
 ```
 
-Restore em Production exige autorização explícita e downtime. Não automatizar.
-
-## Falha segura
-
-Sem secret obrigatório o script sai com `backup_error: secret ausente: NOME` **antes** do dump.
+Restore em Production exige autorização explícita. Não automatizar.

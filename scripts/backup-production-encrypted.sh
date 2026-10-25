@@ -154,7 +154,25 @@ printf 'PGPASSWORD=%s\n' "$BACKUP_DB_PASSWORD" > "$PGENV"
 printf 'PGSSLMODE=require\n' >> "$PGENV"
 printf 'PGOPTIONS=-c default_transaction_read_only=on\n' >> "$PGENV"
 
-log "dump_start format=custom sslmode=require read_only=true"
+log "connect_start sslmode=require read_only=true schema=public"
+
+docker run --rm \
+  --user "$RUNNER_USER" \
+  --entrypoint psql \
+  --env-file "$PGENV" \
+  postgres:17-alpine \
+  --host="$BACKUP_DB_HOST" \
+  --port="$BACKUP_DB_PORT" \
+  --username="$BACKUP_DB_USER" \
+  --dbname="$BACKUP_DB_NAME" \
+  --no-password \
+  --set=ON_ERROR_STOP=1 \
+  -c "select current_user as backup_user, current_database() as db, current_setting('transaction_read_only') as txn_ro;" \
+  >/dev/null
+
+log "connect_ok schema=public"
+
+log "dump_start format=custom sslmode=require read_only=true schema=public"
 
 docker run --rm \
   --user "$RUNNER_USER" \
@@ -169,6 +187,7 @@ docker run --rm \
   --no-password \
   --no-owner \
   --no-acl \
+  --schema=public \
   --format=custom \
   --file=/out/backup.dump
 
