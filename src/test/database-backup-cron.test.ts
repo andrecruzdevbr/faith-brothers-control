@@ -69,6 +69,7 @@ describe("Database encrypted backup workflow", () => {
     expect(script).not.toContain("git push");
     expect(script).toContain("PGSSLMODE=require");
     expect(script).toContain("default_transaction_read_only=on");
+    expect(script).toContain("row_security=off");
     expect(script).toContain("--no-password");
     expect(script).toContain("--entrypoint pg_dump");
     expect(script).toContain("rclone copyto");

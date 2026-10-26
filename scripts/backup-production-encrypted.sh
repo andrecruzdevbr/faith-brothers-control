@@ -186,7 +186,7 @@ RUNNER_USER="$(id -u):$(id -g)"
 umask 077
 printf 'PGPASSWORD=%s\n' "$BACKUP_DB_PASSWORD" > "$PGENV"
 printf 'PGSSLMODE=require\n' >> "$PGENV"
-printf 'PGOPTIONS=-c default_transaction_read_only=on\n' >> "$PGENV"
+printf 'PGOPTIONS=-c default_transaction_read_only=on -c row_security=off\n' >> "$PGENV"
 
 log "connect_start pooler_cluster=${POOLER_CLUSTER} port=${BACKUP_DB_PORT} db=${BACKUP_DB_NAME} sslmode=require read_only=true schema=public,auth"
 
