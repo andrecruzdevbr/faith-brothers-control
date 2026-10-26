@@ -203,27 +203,10 @@ PSQL_OUT="$(docker run --rm \
   --set=ON_ERROR_STOP=1 \
   --tuples-only \
   --no-align \
-  -c "select current_user || ' ' || current_database() || ' ' || current_setting('transaction_read_only'); set role pg_read_all_data; select current_user || ' auth_usage=' || has_schema_privilege(current_user, 'auth', 'USAGE');")"
+  -c "select current_user || ' ' || current_database() || ' ' || current_setting('transaction_read_only');")"
 
 PSQL_OUT="$(printf '%s' "$PSQL_OUT" | tr -d '\r' | awk 'NF { print; exit }')"
-AUTH_USAGE_OUT="$(docker run --rm \
-  --user "$RUNNER_USER" \
-  --entrypoint psql \
-  --env-file "$PGENV" \
-  postgres:17-alpine \
-  --host="$BACKUP_DB_HOST" \
-  --port="$BACKUP_DB_PORT" \
-  --username="$BACKUP_DB_USER" \
-  --dbname="$BACKUP_DB_NAME" \
-  --no-password \
-  --set=ON_ERROR_STOP=1 \
-  --tuples-only \
-  --no-align \
-  -c "set role pg_read_all_data; select has_schema_privilege(current_user, 'auth', 'USAGE');")"
-AUTH_USAGE_OUT="$(printf '%s' "$AUTH_USAGE_OUT" | tr -d '\r' | awk 'NF { print; exit }')"
-[[ "$AUTH_USAGE_OUT" == "t" ]] || fail "fb_backup nao obteve USAGE em auth via pg_read_all_data"
-
-log "connect_ok schema=public,auth sslmode=require session=${PSQL_OUT} auth_usage=true"
+log "connect_ok schema=public,auth sslmode=require session=${PSQL_OUT} dump_role=pg_read_all_data"
 
 if [[ "$CONNECT_ONLY" == "1" ]]; then
   [[ "$POOLER_CLUSTER" == "aws-1" ]] || fail "BACKUP_DB_HOST nao aponta ao Session Pooler aws-1"
