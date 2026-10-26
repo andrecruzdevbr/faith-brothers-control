@@ -188,7 +188,7 @@ printf 'PGPASSWORD=%s\n' "$BACKUP_DB_PASSWORD" > "$PGENV"
 printf 'PGSSLMODE=require\n' >> "$PGENV"
 printf 'PGOPTIONS=-c default_transaction_read_only=on\n' >> "$PGENV"
 
-log "connect_start pooler_cluster=${POOLER_CLUSTER} port=${BACKUP_DB_PORT} db=${BACKUP_DB_NAME} sslmode=require read_only=true schema=public"
+log "connect_start pooler_cluster=${POOLER_CLUSTER} port=${BACKUP_DB_PORT} db=${BACKUP_DB_NAME} sslmode=require read_only=true schema=public,auth"
 
 PSQL_OUT="$(docker run --rm \
   --user "$RUNNER_USER" \
@@ -203,10 +203,27 @@ PSQL_OUT="$(docker run --rm \
   --set=ON_ERROR_STOP=1 \
   --tuples-only \
   --no-align \
-  -c "select current_user || ' ' || current_database() || ' ' || current_setting('transaction_read_only');")"
+  -c "select current_user || ' ' || current_database() || ' ' || current_setting('transaction_read_only'); set role pg_read_all_data; select current_user || ' auth_usage=' || has_schema_privilege(current_user, 'auth', 'USAGE');")"
 
 PSQL_OUT="$(printf '%s' "$PSQL_OUT" | tr -d '\r' | awk 'NF { print; exit }')"
-log "connect_ok schema=public sslmode=require session=${PSQL_OUT}"
+AUTH_USAGE_OUT="$(docker run --rm \
+  --user "$RUNNER_USER" \
+  --entrypoint psql \
+  --env-file "$PGENV" \
+  postgres:17-alpine \
+  --host="$BACKUP_DB_HOST" \
+  --port="$BACKUP_DB_PORT" \
+  --username="$BACKUP_DB_USER" \
+  --dbname="$BACKUP_DB_NAME" \
+  --no-password \
+  --set=ON_ERROR_STOP=1 \
+  --tuples-only \
+  --no-align \
+  -c "set role pg_read_all_data; select has_schema_privilege(current_user, 'auth', 'USAGE');")"
+AUTH_USAGE_OUT="$(printf '%s' "$AUTH_USAGE_OUT" | tr -d '\r' | awk 'NF { print; exit }')"
+[[ "$AUTH_USAGE_OUT" == "t" ]] || fail "fb_backup nao obteve USAGE em auth via pg_read_all_data"
+
+log "connect_ok schema=public,auth sslmode=require session=${PSQL_OUT} auth_usage=true"
 
 if [[ "$CONNECT_ONLY" == "1" ]]; then
   [[ "$POOLER_CLUSTER" == "aws-1" ]] || fail "BACKUP_DB_HOST nao aponta ao Session Pooler aws-1"
@@ -214,7 +231,7 @@ if [[ "$CONNECT_ONLY" == "1" ]]; then
   exit 0
 fi
 
-log "dump_start format=custom sslmode=require read_only=true schema=public"
+log "dump_start format=custom sslmode=require read_only=true schema=public,auth"
 
 docker run --rm \
   --user "$RUNNER_USER" \
@@ -229,7 +246,9 @@ docker run --rm \
   --no-password \
   --no-owner \
   --no-acl \
+  --role=pg_read_all_data \
   --schema=public \
+  --schema=auth \
   --format=custom \
   --file=/out/backup.dump
 
