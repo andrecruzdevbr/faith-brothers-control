@@ -1,6 +1,6 @@
 # Backup automático criptografado — Faith Brothers Control
 
-**Estado:** cron diário **habilitado** (schema `public` apenas). Destino Google Drive. Tag `v1.0.0` não é destino de dump.
+**Estado:** cron diário **habilitado** (`public` + `auth`). Destino Google Drive. Tag `v1.0.0` não é destino de dump.
 
 ## Agenda
 
@@ -14,25 +14,21 @@
 
 Último backup **manual validado** (não apagar até haver outro sucesso e 14 dias):
 
-- Run: https://github.com/andrecruzdevbr/faith-brothers-control/actions/runs/40223268588
-- Arquivo: `faith-brothers-prod-20261025T185214Z.dump.age` (260 412 bytes)
-- Restore isolado: PostgreSQL 17.11, 23/23 tabelas, dados ok; FKs/`authenticated` do Auth ausentes
+- Run: https://github.com/andrecruzdevbr/faith-brothers-control/actions/runs/40398622032
+- Arquivo: `faith-brothers-prod-20261026T204649Z.dump.age` (367 161 bytes)
+- Restore isolado: PostgreSQL 17.11, 23 tabelas `public`, 27 `auth`, 9 FKs de `public` para `auth.users`
 
-## Escopo (parcial)
+## Escopo
 
-O `pg_dump` copia **somente o schema `public`**: tabelas, dados, funções, tipos e índices desse schema. Este dump **não** contém sequences (`SEQUENCE`/`IDENTITY`).
+O `pg_dump` copia os schemas **`public` e `auth`**. Não inclui `vault`, `cron` nem `storage`. Este dump **não** contém sequences (`SEQUENCE`/`IDENTITY`).
 
-**Não inclui** Supabase Auth (`auth.users` e demais objetos de `auth`), Storage, cron, vault nem outros schemas internos.
-
-Um restore **não** recria logins nem políticas que dependem da role `authenticated`. **Não** é backup completo do Faith Brothers Control.
-
-Role de leitura: `fb_backup` (Session Pooler, usuário `fb_backup.wojqjxtaqjasnfhbotxi`). Sem `pg_read_all_data`.
+Role de leitura: `fb_backup` (Session Pooler, usuário `fb_backup.wojqjxtaqjasnfhbotxi`), membro de `pg_read_all_data` **com herança**, `BYPASSRLS` e `default_transaction_read_only=on`. O dump **não** usa `--role`.
 
 Conexão: secret `BACKUP_DB_HOST` = Session Pooler `aws-1-us-west-2.pooler.supabase.com`, porta `5432`, database `postgres`, `sslmode=require`. `aws-0` é recusado.
 
 ## Fluxo
 
-`pg_dump` Postgres 17 (SSL, sessão read-only, `--schema=public`) → `age` → rclone Drive (`FaithBrothers_Backups`, escopo `drive.file`) → `shred` dos temporários.
+`pg_dump` Postgres 17 (SSL, sessão read-only, `--schema=public --schema=auth`) → `age` → rclone Drive (`FaithBrothers_Backups`, escopo `drive.file`) → `shred` dos temporários.
 
 Falha em dump, criptografia ou upload **encerra o job**. A retenção só corre depois de um upload bem-sucedido.
 

@@ -81,6 +81,11 @@ describe("Database encrypted backup workflow", () => {
     expect(script).toContain("FaithBrothers_Backups");
     expect(script).toContain("destino GitHub recusado");
     expect(script).toContain("--schema=public");
+    expect(script).toContain("--schema=auth");
+    expect(script).not.toContain("--role=pg_read_all_data");
+    expect(script).not.toContain("--schema=vault");
+    expect(script).not.toContain("--schema=cron");
+    expect(script).not.toContain("--schema=storage");
     expect(script).toContain("connect_ok");
     expect(script).toContain("--preflight");
     expect(script).toContain("--env-file");

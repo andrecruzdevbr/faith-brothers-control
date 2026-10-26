@@ -188,7 +188,7 @@ printf 'PGPASSWORD=%s\n' "$BACKUP_DB_PASSWORD" > "$PGENV"
 printf 'PGSSLMODE=require\n' >> "$PGENV"
 printf 'PGOPTIONS=-c default_transaction_read_only=on\n' >> "$PGENV"
 
-log "connect_start pooler_cluster=${POOLER_CLUSTER} port=${BACKUP_DB_PORT} db=${BACKUP_DB_NAME} sslmode=require read_only=true schema=public"
+log "connect_start pooler_cluster=${POOLER_CLUSTER} port=${BACKUP_DB_PORT} db=${BACKUP_DB_NAME} sslmode=require read_only=true schema=public,auth"
 
 PSQL_OUT="$(docker run --rm \
   --user "$RUNNER_USER" \
@@ -206,7 +206,7 @@ PSQL_OUT="$(docker run --rm \
   -c "select current_user || ' ' || current_database() || ' ' || current_setting('transaction_read_only');")"
 
 PSQL_OUT="$(printf '%s' "$PSQL_OUT" | tr -d '\r' | awk 'NF { print; exit }')"
-log "connect_ok schema=public sslmode=require session=${PSQL_OUT}"
+log "connect_ok schema=public,auth sslmode=require session=${PSQL_OUT}"
 
 if [[ "$CONNECT_ONLY" == "1" ]]; then
   [[ "$POOLER_CLUSTER" == "aws-1" ]] || fail "BACKUP_DB_HOST nao aponta ao Session Pooler aws-1"
@@ -214,7 +214,7 @@ if [[ "$CONNECT_ONLY" == "1" ]]; then
   exit 0
 fi
 
-log "dump_start format=custom sslmode=require read_only=true schema=public"
+log "dump_start format=custom sslmode=require read_only=true schema=public,auth"
 
 docker run --rm \
   --user "$RUNNER_USER" \
@@ -230,6 +230,7 @@ docker run --rm \
   --no-owner \
   --no-acl \
   --schema=public \
+  --schema=auth \
   --format=custom \
   --file=/out/backup.dump
 
