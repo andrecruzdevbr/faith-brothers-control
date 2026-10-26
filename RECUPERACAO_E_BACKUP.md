@@ -65,11 +65,9 @@ supabase backups list --project-ref wojqjxtaqjasnfhbotxi
 
 **Backup recuperável (Supabase nativo): NÃO.** Sem `inserted_at`, sem PITR. `backups restore` só aceita `--timestamp` de PITR.
 
-Há pipeline de backup criptografado (`BACKUP_AUTOMATICO.md`): cron **00:17 Brasília** (`17 3 * * *` UTC), `pg_dump` 17 do schema **`public` apenas** → `age` → Google Drive `FaithBrothers_Backups`, retenção 14 dias. **Parcial:** não inclui Auth. S3/R2 permanece em `BACKUP_DEST=s3`.
+Há pipeline de backup criptografado (`BACKUP_AUTOMATICO.md`): cron **00:17 Brasília** (`17 3 * * *` UTC), `pg_dump` 17 de **`public` + `auth`** → `age` → Google Drive `FaithBrothers_Backups`, retenção 14 dias. S3/R2 permanece em `BACKUP_DEST=s3`.
 
-Último dump **manual validado:** `faith-brothers-prod-20261025T185214Z.dump.age` (run `40223268588`). Restore isolado em PostgreSQL 17.11 recuperou 23/23 tabelas; FKs de Auth não entram neste arquivo. Restore em Production **não** foi executado. **Não** é recuperação integral do Control.
-
-Auth continua **pendente**: `fb_backup` não tem `USAGE` em `auth`; `GRANT USAGE` como `postgres` é no-op na plataforma. Próximo passo, só com autorização: `GRANT pg_read_all_data TO fb_backup` e então `--schema=auth` no dump. Ver `BACKUP_AUTOMATICO.md`.
+Último dump **manual validado:** `faith-brothers-prod-20261026T204649Z.dump.age` (run `40398622032`). Restore isolado em PostgreSQL 17.11: 23 tabelas `public`, 27 `auth`, 9 FKs de `public` para `auth.users`. Restore em Production **não** foi executado.
 
 ### Recuperação, quando o plano permitir
 
