@@ -16,11 +16,11 @@
 
 - Run: https://github.com/andrecruzdevbr/faith-brothers-control/actions/runs/40398622032
 - Arquivo: `faith-brothers-prod-20261026T204649Z.dump.age` (367 161 bytes)
-- Restore isolado: PostgreSQL 17.11, 23 tabelas `public`, 27 `auth`, 9 FKs de `public` para `auth.users`
+- Validação final (2026-10-26): dump age v1 íntegro; restore isolado PostgreSQL 17.11 **aprovado** — 23/23 `public`, 27 `auth` (inclui `users`, `identities`, `sessions`, `refresh_tokens`), 9/9 FKs de `public` → `auth.users`. Restore em Production **não** executado.
 
 ## Escopo
 
-O `pg_dump` copia os schemas **`public` e `auth`**. Não inclui `vault`, `cron` nem `storage`. Este dump **não** contém sequences (`SEQUENCE`/`IDENTITY`).
+O `pg_dump` copia os schemas **`public` e `auth`**. Não inclui `vault`, `cron` nem `storage`. `public` não tem sequences; `auth` inclui `refresh_tokens_id_seq`.
 
 Role de leitura: `fb_backup` (Session Pooler, usuário `fb_backup.wojqjxtaqjasnfhbotxi`), membro de `pg_read_all_data` **com herança**, `BYPASSRLS` e `default_transaction_read_only=on`. O dump **não** usa `--role`.
 
@@ -65,4 +65,4 @@ pg_restore --list backup.dump
 pg_restore --no-owner --no-acl --dbname=... backup.dump
 ```
 
-Usar PostgreSQL 17 **fora** de Production. Restore em Production exige autorização explícita. Não automatizar.
+Usar PostgreSQL 17 **fora** de Production. O destino isolado precisa das roles hospedadas (`anon`, `authenticated`, `service_role`, `supabase_auth_admin`) e das extensões `pgcrypto`, `citext`, `uuid-ossp`. Restore em Production exige autorização explícita. Não automatizar.
