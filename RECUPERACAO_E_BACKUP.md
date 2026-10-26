@@ -67,7 +67,7 @@ supabase backups list --project-ref wojqjxtaqjasnfhbotxi
 
 Há pipeline de backup criptografado (`BACKUP_AUTOMATICO.md`): cron **00:17 Brasília** (`17 3 * * *` UTC), `pg_dump` 17 de **`public` + `auth`** → `age` → Google Drive `FaithBrothers_Backups`, retenção 14 dias. S3/R2 permanece em `BACKUP_DEST=s3`.
 
-Último dump **manual validado:** `faith-brothers-prod-20261026T204649Z.dump.age` (run `40398622032`). Restore isolado em PostgreSQL 17.11: 23 tabelas `public`, 27 `auth`, 9 FKs de `public` para `auth.users`. Restore em Production **não** foi executado.
+Último dump **manual validado:** `faith-brothers-prod-20261026T204649Z.dump.age` (run `40398622032`). Validação final 2026-10-26: restore isolado PostgreSQL 17.11 aprovado (23 `public`, 27 `auth`, 9 FKs `public`→`auth.users`). Restore em Production **não** foi executado.
 
 ### Recuperação, quando o plano permitir
 
