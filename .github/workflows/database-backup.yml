@@ -6,7 +6,7 @@
 # Destino padrão: Google Drive (escopo drive.file, pasta FaithBrothers_Backups).
 # Destino legado S3: definir secret BACKUP_DEST=s3 e os BACKUP_S3_*.
 #
-# Dump: somente schema public (parcial; não inclui Auth).
+# Dump: schemas public e auth (sem vault/cron/storage).
 # Agenda: 17 3 * * * UTC = 00:17 America/Sao_Paulo (sem horário de verão).
 # Falhas aparecem em Actions; e-mail depende das notificações da conta GitHub.
 #
