@@ -24,9 +24,29 @@ O `pg_dump` copia **somente o schema `public`**: tabelas, dados, funções, tipo
 
 **Não inclui** Supabase Auth (`auth.users` e demais objetos de `auth`), Storage, cron, vault nem outros schemas internos.
 
-Um restore **não** recria logins nem políticas que dependem da role `authenticated`. **Não** é backup completo do Faith Brothers Control.
+Um restore **não** recria logins nem as 9 FKs de `public` para `auth.users`. **Não** é backup completo do Faith Brothers Control.
 
 Role de leitura: `fb_backup` (Session Pooler, usuário `fb_backup.wojqjxtaqjasnfhbotxi`). Sem `pg_read_all_data`.
+
+## Auth — bloqueio da plataforma (pendente)
+
+Objetos indispensáveis para recuperar identidades: `auth.users` (PKs usadas por `public.profiles` e FKs), `auth.identities`, e, se quiser sessões, `auth.sessions` / `auth.refresh_tokens`. MFA e SSO ficam nas demais tabelas de `auth`.
+
+Conferido em Production (somente leitura): `fb_backup` tem `SELECT` em `auth.users` e **não** tem `USAGE` no schema `auth`. Sem `USAGE` o `pg_dump --schema=auth` não entra nas tabelas.
+
+`GRANT USAGE ON SCHEMA auth TO fb_backup`, executado como `postgres`, **não altera nada** no projeto hospedado (`WARNING: no privileges were granted for "auth"`). O schema pertence a `supabase_admin`; `postgres` não tem `GRANT OPTION`. Docs: [Permission errors when granting custom roles access to the auth schema](https://supabase.com/kb/troubleshooting/permission-errors-when-granting-custom-roles-access-to-the-auth-schema).
+
+`supabase db dump --linked --schema auth` não substitui o workflow: o padrão é `--schema-only` (sem linhas de `auth.users`) e a conexão CLI usa o host direto IPv6, inadequado para o runner IPv4 do GitHub Actions.
+
+**Única ação recomendada (exige autorização explícita em Production):**
+
+```sql
+GRANT pg_read_all_data TO fb_backup;
+```
+
+É o padrão oficial de role de backup. A role já é `LOGIN`, `BYPASSRLS` e `default_transaction_read_only=on`. Depois disso o dump pode incluir `--schema=auth`. Efeito colateral documentado: `USAGE` também em `cron` e outros schemas. Não conceder `supabase_auth_admin` nem redefinir a senha `postgres`.
+
+Até essa autorização, o cron diário de `public` permanece como está.
 
 Conexão: secret `BACKUP_DB_HOST` = Session Pooler `aws-1-us-west-2.pooler.supabase.com`, porta `5432`, database `postgres`, `sslmode=require`. `aws-0` é recusado.
 

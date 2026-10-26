@@ -69,6 +69,8 @@ Há pipeline de backup criptografado (`BACKUP_AUTOMATICO.md`): cron **00:17 Bras
 
 Último dump **manual validado:** `faith-brothers-prod-20261025T185214Z.dump.age` (run `40223268588`). Restore isolado em PostgreSQL 17.11 recuperou 23/23 tabelas; FKs de Auth não entram neste arquivo. Restore em Production **não** foi executado. **Não** é recuperação integral do Control.
 
+Auth continua **pendente**: `fb_backup` não tem `USAGE` em `auth`; `GRANT USAGE` como `postgres` é no-op na plataforma. Próximo passo, só com autorização: `GRANT pg_read_all_data TO fb_backup` e então `--schema=auth` no dump. Ver `BACKUP_AUTOMATICO.md`.
+
 ### Recuperação, quando o plano permitir
 
 - **Pro+ sem PITR:** Dashboard → Database → Backups → restore do snapshot diário (retenção 7/14/30 dias conforme plano). Downtime. Confirmar no Dashboard antes de declarar backup.
