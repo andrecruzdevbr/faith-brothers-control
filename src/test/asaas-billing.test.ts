@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  buildAsaasPaymentIdempotencyKey,
   buildAsaasPaymentsLookupPath,
   buildExternalReference,
   buildFailedProcessedEntry,
@@ -12,6 +13,9 @@ import {
 describe("asaas-billing idempotency", () => {
   it("builds stable externalReference", () => {
     expect(buildExternalReference("ced46b69-4293-48dd-b04f-300bb835150f", "2026-06-01")).toBe(
+      "ced46b69-4293-48dd-b04f-300bb835150f:2026-06-01",
+    );
+    expect(buildAsaasPaymentIdempotencyKey("ced46b69-4293-48dd-b04f-300bb835150f", "2026-06-01")).toBe(
       "ced46b69-4293-48dd-b04f-300bb835150f:2026-06-01",
     );
   });

@@ -24,6 +24,11 @@ export function buildExternalReference(studentId: string, referenceMonth: string
   return `${studentId}:${referenceMonth}`;
 }
 
+/** Stable Asaas Idempotency-Key — same (student, month) must not create a second payment. */
+export function buildAsaasPaymentIdempotencyKey(studentId: string, referenceMonth: string): string {
+  return buildExternalReference(studentId, referenceMonth);
+}
+
 export function buildAsaasPaymentsLookupPath(externalReference: string): string {
   return `/payments?externalReference=${encodeURIComponent(externalReference)}&limit=1`;
 }
@@ -80,12 +85,12 @@ export function decideBillingGenerationAction(
     return { action: "already_exists", billingId: existing.id };
   }
 
-  if (existing.status === "cancelado" || existing.status === "falhou") {
-    return { action: "reprocess_failed", billingId: existing.id };
-  }
-
   if (existing.asaas_payment_id) {
     return { action: "already_exists", billingId: existing.id };
+  }
+
+  if (existing.status === "cancelado" || existing.status === "falhou") {
+    return { action: "reprocess_failed", billingId: existing.id };
   }
 
   const updatedAtMs = existing.updated_at ? Date.parse(existing.updated_at) : NaN;

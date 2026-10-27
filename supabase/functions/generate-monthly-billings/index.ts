@@ -20,6 +20,7 @@ import {
   type BillingProcessStage,
   BILLING_GENERATION_CLAIM_MARKER,
   buildAsaasPaymentsLookupPath,
+  buildAsaasPaymentIdempotencyKey,
   buildExternalReference,
   buildFailedProcessedEntry,
   decideBillingGenerationAction,
@@ -447,10 +448,21 @@ Deno.serve(async (req) => {
 
       // Prepaid / family coverage: never create Asaas boleto for covered months
       try {
-        const { data: skipReason } = await supabase.rpc("prepaid_cron_skip_reason", {
+        const { data: skipReason, error: skipError } = await supabase.rpc("prepaid_cron_skip_reason", {
           _student_id: student.id,
           _reference_month: period.referenceMonth,
         });
+        if (skipError) {
+          processed.push(
+            buildFailedProcessedEntry({
+              studentId: student.id,
+              studentName: student.full_name,
+              stage: "resolve_student",
+              error: "prepaid_cron_skip_reason indisponivel; cobranca adiada",
+            }),
+          );
+          continue;
+        }
         if (typeof skipReason === "string" && skipReason.length > 0) {
           processed.push({
             studentId: student.id,
@@ -460,7 +472,15 @@ Deno.serve(async (req) => {
           continue;
         }
       } catch {
-        // If migration not applied yet, fall through to billing_mode check below.
+        processed.push(
+          buildFailedProcessedEntry({
+            studentId: student.id,
+            studentName: student.full_name,
+            stage: "resolve_student",
+            error: "prepaid_cron_skip_reason falhou; cobranca adiada",
+          }),
+        );
+        continue;
       }
 
       const billingMode = String(plan.billing_mode ?? "asaas_monthly");
@@ -690,6 +710,9 @@ Deno.serve(async (req) => {
           stage = "create_asaas_payment";
           paymentRecord = await asaasRequest("/payments", {
             method: "POST",
+            headers: {
+              "Idempotency-Key": buildAsaasPaymentIdempotencyKey(student.id, period.referenceMonth),
+            },
             body: JSON.stringify(
               buildAsaasBoletoPaymentPayload({
                 customerId,

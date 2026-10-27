@@ -288,6 +288,8 @@ describe("wiring — cron day 12 and generate-monthly-billings payload", () => {
     expect(cron).toContain('DAY}" = "12"');
     expect(cron).toContain("wojqjxtaqjasnfhbotxi");
     expect(cron).toContain("Recusando: BASE_URL aponta ao staging");
+    expect(cron).toContain("group: billing-cron");
+    expect(cron).toContain("cancel-in-progress: false");
     expect(cron).not.toContain('cron: "0 11 10 * *"');
     expect(cron).not.toMatch(/functions\/v1\/.*apbksfaztfkxshxffpik/);
   });
@@ -303,6 +305,9 @@ describe("wiring — cron day 12 and generate-monthly-billings payload", () => {
     expect(source).toContain("preferBankSlipUrl");
     expect(source).toContain("buildBillingIssuedIdempotencyKey");
     expect(source).toContain("idempotencyKey: buildBillingIssuedIdempotencyKey(params.billingId)");
+    expect(source).toContain("Idempotency-Key");
+    expect(source).toContain("buildAsaasPaymentIdempotencyKey");
+    expect(source).toContain("prepaid_cron_skip_reason indisponivel");
   });
 
   it("uses a stable unique key per billing issue event", () => {

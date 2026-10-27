@@ -77,6 +77,21 @@ describe("billing generation concurrency", () => {
     ).toEqual({ action: "reprocess_failed", billingId: "b5" });
   });
 
+  it("does not recreate Asaas payment when falhou/cancelado already has asaas_payment_id", () => {
+    expect(
+      decideBillingGenerationAction(
+        { id: "b6", status: "falhou", asaas_payment_id: "pay_stale", updated_at: now.toISOString() },
+        now,
+      ),
+    ).toEqual({ action: "already_exists", billingId: "b6" });
+    expect(
+      decideBillingGenerationAction(
+        { id: "b7", status: "cancelado", asaas_payment_id: "pay_del", updated_at: now.toISOString() },
+        now,
+      ),
+    ).toEqual({ action: "already_exists", billingId: "b7" });
+  });
+
   it("uses stable externalReference and prefers existing Asaas payment", () => {
     const ref = buildExternalReference("student-1", "2026-10-01");
     expect(ref).toBe("student-1:2026-10-01");
