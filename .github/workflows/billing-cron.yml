@@ -34,6 +34,10 @@ on:
           - generate
           - overdue
 
+concurrency:
+  group: billing-cron
+  cancel-in-progress: false
+
 jobs:
   billing:
     runs-on: ubuntu-latest

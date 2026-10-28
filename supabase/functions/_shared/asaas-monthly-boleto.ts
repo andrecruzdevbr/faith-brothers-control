@@ -17,12 +17,11 @@ const NON_BOLETO_PAYMENT_METHODS = new Set([
   "dinheiro",
 ]);
 
+/** Automatic monthly boleto requires an explicit boleto choice at signup. */
 export function shouldGenerateMonthlyBoleto(
   paymentMethod: string | null | undefined,
 ): boolean {
-  const method = String(paymentMethod ?? "").trim().toLowerCase();
-  if (!method || method === "boleto") return true;
-  return !NON_BOLETO_PAYMENT_METHODS.has(method);
+  return String(paymentMethod ?? "").trim().toLowerCase() === "boleto";
 }
 
 export function skipReasonForNonBoletoPaymentMethod(
@@ -31,6 +30,59 @@ export function skipReasonForNonBoletoPaymentMethod(
   return shouldGenerateMonthlyBoleto(paymentMethod)
     ? null
     : "skipped_non_boleto_payment_method";
+}
+
+export type AutomaticBoletoGateInput = {
+  status?: string | null;
+  requestedPaymentMethod?: string | null;
+  billingMode?: string | null;
+  paymentReviewStatus?: string | null;
+  monthlyPrice?: number | null;
+};
+
+export type AutomaticBoletoGate =
+  | { eligible: true }
+  | {
+      eligible: false;
+      reason:
+        | "skipped_inactive_or_pending"
+        | "skipped_non_boleto_payment_method"
+        | "skipped_non_asaas_plan"
+        | "skipped_zero_or_exempt_amount"
+        | "skipped_payment_review_pending";
+    };
+
+/**
+ * Cadastro → boleto → aprovação → aluno ativo → geração mensal.
+ * Family/prepaid plans (billing_mode !== asaas_monthly) never enter this gate.
+ */
+export function evaluateAutomaticMonthlyBoleto(
+  input: AutomaticBoletoGateInput,
+): AutomaticBoletoGate {
+  const status = String(input.status ?? "").trim().toLowerCase();
+  if (status !== "ativo") {
+    return { eligible: false, reason: "skipped_inactive_or_pending" };
+  }
+
+  const review = String(input.paymentReviewStatus ?? "").trim().toLowerCase();
+  if (review && review !== "nao_aplicavel") {
+    return { eligible: false, reason: "skipped_payment_review_pending" };
+  }
+
+  if (!shouldGenerateMonthlyBoleto(input.requestedPaymentMethod)) {
+    return { eligible: false, reason: "skipped_non_boleto_payment_method" };
+  }
+
+  const billingMode = String(input.billingMode ?? "asaas_monthly").trim();
+  if (billingMode !== "asaas_monthly") {
+    return { eligible: false, reason: "skipped_non_asaas_plan" };
+  }
+
+  if (input.monthlyPrice != null && (!Number.isFinite(input.monthlyPrice) || input.monthlyPrice <= 0)) {
+    return { eligible: false, reason: "skipped_zero_or_exempt_amount" };
+  }
+
+  return { eligible: true };
 }
 
 export type AsaasBoletoPaymentPayload = {
@@ -137,6 +189,24 @@ export function resolveMonthlyBillingWhatsAppRecipient(input: {
     return { recipient: responsiblePhone, source: "family_responsible" };
   }
   return { recipient: input.studentWhatsapp, source: "student" };
+}
+
+/**
+ * Financial notices (boleto issued, overdue, payment confirmed) go to the
+ * family responsible when one exists. Do not fall back to a dependent's phone.
+ */
+export function resolveFinancialNoticeRecipient(input: {
+  studentId: string;
+  studentWhatsapp: string;
+  responsibleStudentId?: string | null;
+  responsiblePhone?: string | null;
+}): { recipient: string; source: "student" | "family_responsible" } {
+  const resolved = resolveMonthlyBillingWhatsAppRecipient(input);
+  if (resolved.source === "family_responsible") return resolved;
+  if (input.responsibleStudentId) {
+    return { recipient: "", source: "family_responsible" };
+  }
+  return resolved;
 }
 
 export function shouldDispatchBillingWhatsApp(params: {

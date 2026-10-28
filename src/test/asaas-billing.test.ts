@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  asaasPaymentListHasMore,
+  buildAsaasPaymentIdempotencyKey,
   buildAsaasPaymentsLookupPath,
   buildExternalReference,
+  isAsaasSandboxBaseUrl,
   buildFailedProcessedEntry,
   pickExistingAsaasPayment,
   shouldCreateAsaasPayment,
@@ -14,19 +17,42 @@ describe("asaas-billing idempotency", () => {
     expect(buildExternalReference("ced46b69-4293-48dd-b04f-300bb835150f", "2026-06-01")).toBe(
       "ced46b69-4293-48dd-b04f-300bb835150f:2026-06-01",
     );
+    expect(buildAsaasPaymentIdempotencyKey("ced46b69-4293-48dd-b04f-300bb835150f", "2026-06-01")).toBe(
+      "ced46b69-4293-48dd-b04f-300bb835150f:2026-06-01",
+    );
   });
 
   it("builds encoded lookup path for externalReference", () => {
     const ref = buildExternalReference("student-id", "2026-06-01");
     expect(buildAsaasPaymentsLookupPath(ref)).toBe(
-      `/payments?externalReference=${encodeURIComponent(ref)}&limit=1`,
+      `/payments?externalReference=${encodeURIComponent(ref)}&limit=100&offset=0`,
     );
+    expect(buildAsaasPaymentsLookupPath(ref, 100)).toContain("offset=100");
+    expect(buildAsaasPaymentsLookupPath(ref)).toContain("limit=100");
+    expect(buildAsaasPaymentsLookupPath(ref)).not.toMatch(/[?&]limit=1(?:&|$)/);
   });
 
   it("reuses existing Asaas payment when list returns data", () => {
     const existing = { id: "pay_existing", externalReference: "student:2026-06-01" };
     expect(pickExistingAsaasPayment({ data: [existing] })).toEqual(existing);
     expect(shouldCreateAsaasPayment(pickExistingAsaasPayment({ data: [existing] }))).toBe(false);
+  });
+
+  it("does not treat the first row as unique when several payments share the reference", () => {
+    const deleted = { id: "pay_old", status: "DELETED" };
+    const pending = { id: "pay_live", status: "PENDING" };
+    const overdue = { id: "pay_late", status: "OVERDUE" };
+    expect(pickExistingAsaasPayment({ data: [deleted, overdue, pending] })).toEqual(overdue);
+    expect(shouldCreateAsaasPayment(pickExistingAsaasPayment({ data: [deleted, pending] }))).toBe(false);
+    expect(shouldCreateAsaasPayment(pickExistingAsaasPayment({ data: [deleted] }))).toBe(false);
+    expect(asaasPaymentListHasMore({ data: new Array(100).fill(pending) })).toBe(true);
+    expect(asaasPaymentListHasMore({ data: [pending], hasMore: false })).toBe(false);
+  });
+
+  it("detects Asaas sandbox hosts and rejects production", () => {
+    expect(isAsaasSandboxBaseUrl("https://api-sandbox.asaas.com/v3")).toBe(true);
+    expect(isAsaasSandboxBaseUrl("https://sandbox.asaas.com/v3")).toBe(true);
+    expect(isAsaasSandboxBaseUrl("https://api.asaas.com/v3")).toBe(false);
   });
 
   it("requires POST when no Asaas payment exists", () => {

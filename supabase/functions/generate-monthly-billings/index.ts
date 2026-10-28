@@ -19,17 +19,21 @@ import {
 import {
   type BillingProcessStage,
   BILLING_GENERATION_CLAIM_MARKER,
+  asaasPaymentListHasMore,
   buildAsaasPaymentsLookupPath,
+  buildAsaasPaymentIdempotencyKey,
   buildExternalReference,
   buildFailedProcessedEntry,
   decideBillingGenerationAction,
   getAsaasPaymentFields,
+  isAsaasSandboxBaseUrl,
   isBillingUniqueViolation,
   pickExistingAsaasPayment,
   shouldCreateAsaasPayment,
   shouldUpdateAsaasCustomer,
   unwrapRelation,
 } from "../_shared/asaas-billing.ts";
+import { timingSafeEqualString } from "../_shared/timing-safe.ts";
 import { normalizeTaxId, sanitizeBillingError } from "../_shared/tax-id.ts";
 import { assertSendableBoletoUrl } from "../_shared/billing-boleto.ts";
 import {
@@ -37,9 +41,10 @@ import {
   buildBillingIssuedIdempotencyKey,
   buildMonthlyBoletoWhatsAppMessage,
   preferBankSlipUrl,
+  evaluateAutomaticMonthlyBoleto,
+  resolveFinancialNoticeRecipient,
   resolveMonthlyBillingWhatsAppRecipient,
   shouldDispatchBillingWhatsApp,
-  skipReasonForNonBoletoPaymentMethod,
 } from "../_shared/asaas-monthly-boleto.ts";
 type StudentBillingProfile = {
   tax_id: string | null;
@@ -70,6 +75,8 @@ type StudentRow = {
   asaas_customer_id: string | null;
   plan_id: string | null;
   requested_payment_method?: string | null;
+  payment_review_status?: string | null;
+  status?: string | null;
   plans: PlanEmbed | PlanEmbed[] | null;
   student_billing_profiles:
     | StudentBillingProfile
@@ -90,7 +97,13 @@ type GenerateBody = {
   sendWhatsApp?: boolean;
   /** YYYY-MM-01 ou YYYY-MM — se omitido, usa próxima referência válida (dia 15). */
   referenceMonth?: string;
+  /** No Asaas create, no local claim, no WhatsApp. */
+  dryRun?: boolean;
+  /** Sandbox only: confirm the boleto in Asaas and POST the webhook. */
+  sandboxConfirm?: boolean;
 };
+
+const ASAAS_FETCH_TIMEOUT_MS = 25_000;
 
 function getAsaasBaseUrl(): string {
   const raw = getEnv("ASAAS_BASE_URL").trim();
@@ -128,15 +141,31 @@ function resolveStudentIdFilter(body: GenerateBody): string | null {
 async function asaasRequest(path: string, init: RequestInit = {}) {
   const apiKey = getEnv("ASAAS_API_KEY");
   const baseUrl = getAsaasBaseUrl();
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      "User-Agent": "FaithBrothersHub/1.0",
-      access_token: apiKey,
-      ...(init.headers ?? {}),
-    },
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ASAAS_FETCH_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "FaithBrothersHub/1.0",
+        access_token: apiKey,
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    const aborted =
+      (error instanceof Error && error.name === "AbortError") ||
+      (typeof error === "object" && error !== null && "name" in error && error.name === "AbortError");
+    if (aborted) {
+      throw new Error(`Asaas timeout after ${ASAAS_FETCH_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
   const raw = await response.text();
   let data: unknown = {};
   if (raw.trim()) {
@@ -208,6 +237,21 @@ async function ensureAsaasCustomer(
   });
   await supabase.from("students").update({ asaas_customer_id: customer.id }).eq("id", student.id);
   return customer.id as string;
+}
+
+async function findExistingAsaasPaymentByReference(
+  externalReference: string,
+): Promise<Record<string, unknown> | null> {
+  const collected: Array<Record<string, unknown>> = [];
+  let offset = 0;
+  for (let page = 0; page < 10; page++) {
+    const response = await asaasRequest(buildAsaasPaymentsLookupPath(externalReference, offset));
+    const rows = Array.isArray(response.data) ? response.data.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object") : [];
+    collected.push(...rows);
+    if (!asaasPaymentListHasMore(response) || rows.length === 0) break;
+    offset += rows.length;
+  }
+  return pickExistingAsaasPayment({ data: collected });
 }
 
 async function loadFamilyResponsibleMap(
@@ -309,12 +353,13 @@ Deno.serve(async (req) => {
   const headers = { ...corsHeaders(req), "Content-Type": "application/json" };
 
   try {
-    getAsaasBaseUrl();
-    getEnv("ASAAS_API_KEY");
-
     const authHeader = req.headers.get("Authorization");
     const cronSecret = getEnv("BILLING_CRON_SECRET");
-    const isCronCall = req.headers.get("x-cron-secret") === cronSecret;
+    const serviceRole = getEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
+    const isCronCall =
+      timingSafeEqualString(req.headers.get("x-cron-secret"), cronSecret) ||
+      timingSafeEqualString(bearer, serviceRole);
     let academyIdFilter: string | null = null;
     let body: GenerateBody = {};
 
@@ -327,9 +372,14 @@ Deno.serve(async (req) => {
     }
 
     const force = body.force === true;
+    const dryRun = body.dryRun === true;
+    const sandboxConfirm = body.sandboxConfirm === true;
     const studentIdFilter = resolveStudentIdFilter(body);
-    const sendWhatsAppOverride =
-      typeof body.sendWhatsApp === "boolean" ? body.sendWhatsApp : undefined;
+    const sendWhatsAppOverride = sandboxConfirm
+      ? false
+      : typeof body.sendWhatsApp === "boolean"
+        ? body.sendWhatsApp
+        : undefined;
     const requestedReferenceMonth =
       typeof body.referenceMonth === "string" && body.referenceMonth.trim()
         ? body.referenceMonth.trim()
@@ -342,13 +392,26 @@ Deno.serve(async (req) => {
       academyIdFilter = await getAuthorizedAdminAcademyId(authHeader);
     }
 
+    if (!dryRun) {
+      const asaasBase = getAsaasBaseUrl();
+      getEnv("ASAAS_API_KEY");
+      if (sandboxConfirm && !isAsaasSandboxBaseUrl(asaasBase)) {
+        return new Response(
+          JSON.stringify({ success: false, error: "sandboxConfirm refused: Asaas is not sandbox" }),
+          { status: 400, headers },
+        );
+      }
+    }
+
     const supabase = createServiceClient();
-    try {
-      await supabase.rpc("expire_elapsed_student_contracts");
-    } catch (expireError) {
-      console.error("expire_elapsed_student_contracts skipped", {
-        message: expireError instanceof Error ? expireError.message : String(expireError),
-      });
+    if (!dryRun) {
+      try {
+        await supabase.rpc("expire_elapsed_student_contracts");
+      } catch (expireError) {
+        console.error("expire_elapsed_student_contracts skipped", {
+          message: expireError instanceof Error ? expireError.message : String(expireError),
+        });
+      }
     }
     const now = new Date();
     const today = getBrazilCivilDate(now).day;
@@ -374,7 +437,7 @@ Deno.serve(async (req) => {
     let studentsQuery = supabase
       .from("students")
       .select(`
-        id, academy_id, full_name, email, whatsapp, asaas_customer_id, plan_id, requested_payment_method,
+        id, academy_id, full_name, email, whatsapp, asaas_customer_id, plan_id, requested_payment_method, payment_review_status, status,
         student_billing_profiles ( tax_id ),
         plans ( id, name, monthly_price, billing_mode ),
         academies!inner ( name, finance_contact_name, finance_whatsapp,
@@ -382,6 +445,7 @@ Deno.serve(async (req) => {
         )
       `)
       .eq("status", "ativo")
+      .eq("requested_payment_method", "boleto")
       .not("plan_id", "is", null);
 
     if (academyIdFilter) studentsQuery = studentsQuery.eq("academy_id", academyIdFilter);
@@ -447,10 +511,21 @@ Deno.serve(async (req) => {
 
       // Prepaid / family coverage: never create Asaas boleto for covered months
       try {
-        const { data: skipReason } = await supabase.rpc("prepaid_cron_skip_reason", {
+        const { data: skipReason, error: skipError } = await supabase.rpc("prepaid_cron_skip_reason", {
           _student_id: student.id,
           _reference_month: period.referenceMonth,
         });
+        if (skipError) {
+          processed.push(
+            buildFailedProcessedEntry({
+              studentId: student.id,
+              studentName: student.full_name,
+              stage: "resolve_student",
+              error: "prepaid_cron_skip_reason indisponivel; cobranca adiada",
+            }),
+          );
+          continue;
+        }
         if (typeof skipReason === "string" && skipReason.length > 0) {
           processed.push({
             studentId: student.id,
@@ -459,26 +534,41 @@ Deno.serve(async (req) => {
           });
           continue;
         }
+        if (skipReason != null && skipReason !== "") {
+          processed.push(
+            buildFailedProcessedEntry({
+              studentId: student.id,
+              studentName: student.full_name,
+              stage: "resolve_student",
+              error: "prepaid_cron_skip_reason resposta inesperada; cobranca adiada",
+            }),
+          );
+          continue;
+        }
       } catch {
-        // If migration not applied yet, fall through to billing_mode check below.
-      }
-
-      const billingMode = String(plan.billing_mode ?? "asaas_monthly");
-      if (billingMode !== "asaas_monthly") {
-        processed.push({
-          studentId: student.id,
-          studentName: student.full_name,
-          status: "skipped_non_asaas_plan" as BillingProcessedEntry["status"],
-        });
+        processed.push(
+          buildFailedProcessedEntry({
+            studentId: student.id,
+            studentName: student.full_name,
+            stage: "resolve_student",
+            error: "prepaid_cron_skip_reason falhou; cobranca adiada",
+          }),
+        );
         continue;
       }
 
-      const nonBoletoSkip = skipReasonForNonBoletoPaymentMethod(student.requested_payment_method);
-      if (nonBoletoSkip) {
+      const boletoGate = evaluateAutomaticMonthlyBoleto({
+        status: student.status ?? "ativo",
+        requestedPaymentMethod: student.requested_payment_method,
+        billingMode: plan.billing_mode,
+        paymentReviewStatus: student.payment_review_status,
+        monthlyPrice: Number(plan.monthly_price),
+      });
+      if (!boletoGate.eligible) {
         processed.push({
           studentId: student.id,
           studentName: student.full_name,
-          status: nonBoletoSkip,
+          status: boletoGate.reason as BillingProcessedEntry["status"],
         });
         continue;
       }
@@ -493,14 +583,21 @@ Deno.serve(async (req) => {
       }
 
       const family = familyByStudentId.get(student.id);
-      const billingRecipient = resolveMonthlyBillingWhatsAppRecipient({
+      const recipientInput = {
         studentId: student.id,
         studentWhatsapp: student.whatsapp,
         responsibleStudentId: family?.responsibleStudentId,
         responsiblePhone: family?.phone,
-      }).recipient;
+      };
+      const noticeRecipient = resolveFinancialNoticeRecipient(recipientInput).recipient;
+      const fallbackRecipient = resolveMonthlyBillingWhatsAppRecipient(recipientInput).recipient;
+      const billingRecipient = hasValidStudentWhatsapp(noticeRecipient)
+        ? noticeRecipient
+        : family?.responsibleStudentId
+          ? ""
+          : fallbackRecipient;
 
-      if (!hasValidStudentWhatsapp(billingRecipient)) {
+      if (!hasValidStudentWhatsapp(noticeRecipient) && !hasValidStudentWhatsapp(fallbackRecipient)) {
         processed.push({
           studentId: student.id,
           studentName: student.full_name,
@@ -548,6 +645,7 @@ Deno.serve(async (req) => {
         });
 
         if (
+          !dryRun &&
           sendWhatsApp &&
           existingBilling.boleto_url &&
           (existingBilling.status === "pendente" || existingBilling.status === "gerado")
@@ -609,6 +707,19 @@ Deno.serve(async (req) => {
 
       const dueDate = period.dueDate;
       const issueDate = period.issueDate;
+
+      if (dryRun) {
+        processed.push({
+          studentId: student.id,
+          studentName: student.full_name,
+          status: "dry_run_eligible",
+          amount: planAmount,
+          dueDate,
+          referenceMonth: period.referenceMonth,
+        });
+        continue;
+      }
+
       let claimedBillingId: string | null =
         decision.action === "complete_claimed" || decision.action === "reprocess_failed"
           ? decision.billingId
@@ -683,23 +794,34 @@ Deno.serve(async (req) => {
         const externalReference = buildExternalReference(student.id, period.referenceMonth);
 
         stage = "find_existing_asaas_payment";
-        const lookupResponse = await asaasRequest(buildAsaasPaymentsLookupPath(externalReference));
-        let paymentRecord = pickExistingAsaasPayment(lookupResponse);
+        let paymentRecord = await findExistingAsaasPaymentByReference(externalReference);
 
         if (shouldCreateAsaasPayment(paymentRecord)) {
           stage = "create_asaas_payment";
-          paymentRecord = await asaasRequest("/payments", {
-            method: "POST",
-            body: JSON.stringify(
-              buildAsaasBoletoPaymentPayload({
-                customerId,
-                value: planAmount,
-                dueDate,
-                description: `${academy?.name ?? "Academia"} - ${plan.name} - ${period.referenceMonth}`,
-                externalReference,
-              }),
-            ),
-          });
+          try {
+            paymentRecord = await asaasRequest("/payments", {
+              method: "POST",
+              headers: {
+                "Idempotency-Key": buildAsaasPaymentIdempotencyKey(student.id, period.referenceMonth),
+              },
+              body: JSON.stringify(
+                buildAsaasBoletoPaymentPayload({
+                  customerId,
+                  value: planAmount,
+                  dueDate,
+                  description: `${academy?.name ?? "Academia"} - ${plan.name} - ${period.referenceMonth}`,
+                  externalReference,
+                }),
+              ),
+            });
+          } catch (createError) {
+            const recovered = await findExistingAsaasPaymentByReference(externalReference);
+            if (!shouldCreateAsaasPayment(recovered) && recovered) {
+              paymentRecord = recovered;
+            } else {
+              throw createError;
+            }
+          }
         }
 
         const payment = getAsaasPaymentFields(paymentRecord);
@@ -734,6 +856,43 @@ Deno.serve(async (req) => {
         }
 
         insertedBillingId = insertedBilling.id;
+
+        if (sandboxConfirm && payment.id) {
+          const civil = getBrazilCivilDate(now);
+          const paidOn = `${civil.year}-${String(civil.monthIndex + 1).padStart(2, "0")}-${String(civil.day).padStart(2, "0")}`;
+          await asaasRequest(`/payments/${payment.id}/receiveInCash`, {
+            method: "POST",
+            body: JSON.stringify({
+              paymentDate: paidOn,
+              value: planAmount,
+              notifyCustomer: false,
+            }),
+          });
+          const webhookUrl = `${getEnv("SUPABASE_URL").replace(/\/+$/, "")}/functions/v1/asaas-webhook`;
+          const webhookResponse = await fetch(webhookUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "asaas-access-token": getEnv("ASAAS_WEBHOOK_TOKEN"),
+            },
+            body: JSON.stringify({
+              event: "PAYMENT_CONFIRMED",
+              payment: { id: payment.id },
+            }),
+          });
+          if (!webhookResponse.ok) {
+            throw new Error(`sandbox webhook HTTP ${webhookResponse.status}`);
+          }
+          processed.push({
+            studentId: student.id,
+            studentName: student.full_name,
+            billingId: insertedBilling.id,
+            status: "sandbox_confirmed",
+            amount: planAmount,
+            dueDate,
+            referenceMonth: period.referenceMonth,
+          });
+        }
 
         if (
           shouldDispatchBillingWhatsApp({
@@ -816,7 +975,7 @@ Deno.serve(async (req) => {
               ),
             });
           }
-        } else {
+        } else if (!sandboxConfirm) {
           processed.push({
             studentId: student.id,
             studentName: student.full_name,
@@ -854,6 +1013,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
+        dryRun,
         referenceMonth: runPeriod.referenceMonth,
         dueDate: runPeriod.dueDate,
         dueDay: runPeriod.dueDay,

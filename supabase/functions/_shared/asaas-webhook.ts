@@ -1,5 +1,8 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
+import { unwrapRelation } from "./asaas-billing.ts";
+import { resolveFinancialNoticeRecipient } from "./asaas-monthly-boleto.ts";
 import { sanitizeLogError } from "./sanitize-log.ts";
+import { timingSafeEqualString } from "./timing-safe.ts";
 
 export const PAYMENT_PAID_EVENTS = [
   "PAYMENT_RECEIVED",
@@ -61,7 +64,7 @@ export function validateAsaasWebhookToken(
   accessToken: string | null,
   expectedToken: string,
 ): boolean {
-  return accessToken === expectedToken;
+  return timingSafeEqualString(accessToken, expectedToken);
 }
 
 export const PAYMENT_REFUND_EVENTS = [
@@ -128,6 +131,44 @@ function logWebhookEvent(details: {
   );
 }
 
+async function loadFamilyResponsibleForStudent(
+  supabase: SupabaseClient,
+  studentId: string,
+): Promise<{ phone: string | null; responsibleStudentId: string | null }> {
+  const { data, error } = await supabase
+    .from("family_members")
+    .select("family_groups ( financial_responsible_phone, financial_responsible_student_id )")
+    .eq("student_id", studentId)
+    .eq("status", "ativo")
+    .maybeSingle();
+
+  if (error || !data) {
+    return { phone: null, responsibleStudentId: null };
+  }
+
+  const group = unwrapRelation(
+    (
+      data as {
+        family_groups:
+          | {
+              financial_responsible_phone: string | null;
+              financial_responsible_student_id: string | null;
+            }
+          | {
+              financial_responsible_phone: string | null;
+              financial_responsible_student_id: string | null;
+            }[]
+          | null;
+      }
+    ).family_groups,
+  );
+
+  return {
+    phone: group?.financial_responsible_phone ?? null,
+    responsibleStudentId: group?.financial_responsible_student_id ?? null,
+  };
+}
+
 async function sendPaymentConfirmation(
   supabase: SupabaseClient,
   billing: BillingRow,
@@ -136,14 +177,24 @@ async function sendPaymentConfirmation(
 ) {
   const student = Array.isArray(billing.students) ? billing.students[0] : billing.students;
   const plan = Array.isArray(billing.plans) ? billing.plans[0] : billing.plans;
-  if (!student?.whatsapp) return;
+  if (!student) return;
+
+  const family = await loadFamilyResponsibleForStudent(supabase, billing.student_id);
+  const recipient = resolveFinancialNoticeRecipient({
+    studentId: billing.student_id,
+    studentWhatsapp: student.whatsapp ?? "",
+    responsibleStudentId: family.responsibleStudentId,
+    responsiblePhone: family.phone,
+  }).recipient;
+
+  if (!recipient) return;
 
   await queueWhatsAppFn({
     supabase,
     academyId: billing.academy_id,
     studentId: billing.student_id,
     billingId: billing.id,
-    recipient: student.whatsapp,
+    recipient,
     body: [
       "Faith Brothers BJJ 🥋",
       "",
