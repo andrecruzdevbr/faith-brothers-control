@@ -24,6 +24,15 @@ export function buildExternalReference(studentId: string, referenceMonth: string
   return `${studentId}:${referenceMonth}`;
 }
 
+export function isAsaasSandboxBaseUrl(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase();
+    return host === "api-sandbox.asaas.com" || host === "sandbox.asaas.com";
+  } catch {
+    return false;
+  }
+}
+
 /** Stable Asaas Idempotency-Key — same (student, month) must not create a second payment. */
 export function buildAsaasPaymentIdempotencyKey(studentId: string, referenceMonth: string): string {
   return buildExternalReference(studentId, referenceMonth);

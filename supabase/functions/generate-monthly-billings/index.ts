@@ -26,6 +26,7 @@ import {
   buildFailedProcessedEntry,
   decideBillingGenerationAction,
   getAsaasPaymentFields,
+  isAsaasSandboxBaseUrl,
   isBillingUniqueViolation,
   pickExistingAsaasPayment,
   shouldCreateAsaasPayment,
@@ -98,6 +99,8 @@ type GenerateBody = {
   referenceMonth?: string;
   /** No Asaas create, no local claim, no WhatsApp. */
   dryRun?: boolean;
+  /** Sandbox only: confirm the boleto in Asaas and POST the webhook. */
+  sandboxConfirm?: boolean;
 };
 
 const ASAAS_FETCH_TIMEOUT_MS = 25_000;
@@ -352,7 +355,11 @@ Deno.serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization");
     const cronSecret = getEnv("BILLING_CRON_SECRET");
-    const isCronCall = timingSafeEqualString(req.headers.get("x-cron-secret"), cronSecret);
+    const serviceRole = getEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
+    const isCronCall =
+      timingSafeEqualString(req.headers.get("x-cron-secret"), cronSecret) ||
+      timingSafeEqualString(bearer, serviceRole);
     let academyIdFilter: string | null = null;
     let body: GenerateBody = {};
 
@@ -366,9 +373,13 @@ Deno.serve(async (req) => {
 
     const force = body.force === true;
     const dryRun = body.dryRun === true;
+    const sandboxConfirm = body.sandboxConfirm === true;
     const studentIdFilter = resolveStudentIdFilter(body);
-    const sendWhatsAppOverride =
-      typeof body.sendWhatsApp === "boolean" ? body.sendWhatsApp : undefined;
+    const sendWhatsAppOverride = sandboxConfirm
+      ? false
+      : typeof body.sendWhatsApp === "boolean"
+        ? body.sendWhatsApp
+        : undefined;
     const requestedReferenceMonth =
       typeof body.referenceMonth === "string" && body.referenceMonth.trim()
         ? body.referenceMonth.trim()
@@ -382,8 +393,14 @@ Deno.serve(async (req) => {
     }
 
     if (!dryRun) {
-      getAsaasBaseUrl();
+      const asaasBase = getAsaasBaseUrl();
       getEnv("ASAAS_API_KEY");
+      if (sandboxConfirm && !isAsaasSandboxBaseUrl(asaasBase)) {
+        return new Response(
+          JSON.stringify({ success: false, error: "sandboxConfirm refused: Asaas is not sandbox" }),
+          { status: 400, headers },
+        );
+      }
     }
 
     const supabase = createServiceClient();
@@ -840,6 +857,43 @@ Deno.serve(async (req) => {
 
         insertedBillingId = insertedBilling.id;
 
+        if (sandboxConfirm && payment.id) {
+          const civil = getBrazilCivilDate(now);
+          const paidOn = `${civil.year}-${String(civil.monthIndex + 1).padStart(2, "0")}-${String(civil.day).padStart(2, "0")}`;
+          await asaasRequest(`/payments/${payment.id}/receiveInCash`, {
+            method: "POST",
+            body: JSON.stringify({
+              paymentDate: paidOn,
+              value: planAmount,
+              notifyCustomer: false,
+            }),
+          });
+          const webhookUrl = `${getEnv("SUPABASE_URL").replace(/\/+$/, "")}/functions/v1/asaas-webhook`;
+          const webhookResponse = await fetch(webhookUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "asaas-access-token": getEnv("ASAAS_WEBHOOK_TOKEN"),
+            },
+            body: JSON.stringify({
+              event: "PAYMENT_CONFIRMED",
+              payment: { id: payment.id },
+            }),
+          });
+          if (!webhookResponse.ok) {
+            throw new Error(`sandbox webhook HTTP ${webhookResponse.status}`);
+          }
+          processed.push({
+            studentId: student.id,
+            studentName: student.full_name,
+            billingId: insertedBilling.id,
+            status: "sandbox_confirmed",
+            amount: planAmount,
+            dueDate,
+            referenceMonth: period.referenceMonth,
+          });
+        }
+
         if (
           shouldDispatchBillingWhatsApp({
             sendWhatsApp,
@@ -921,7 +975,7 @@ Deno.serve(async (req) => {
               ),
             });
           }
-        } else {
+        } else if (!sandboxConfirm) {
           processed.push({
             studentId: student.id,
             studentName: student.full_name,

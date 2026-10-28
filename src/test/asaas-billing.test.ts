@@ -4,6 +4,7 @@ import {
   buildAsaasPaymentIdempotencyKey,
   buildAsaasPaymentsLookupPath,
   buildExternalReference,
+  isAsaasSandboxBaseUrl,
   buildFailedProcessedEntry,
   pickExistingAsaasPayment,
   shouldCreateAsaasPayment,
@@ -46,6 +47,12 @@ describe("asaas-billing idempotency", () => {
     expect(shouldCreateAsaasPayment(pickExistingAsaasPayment({ data: [deleted] }))).toBe(false);
     expect(asaasPaymentListHasMore({ data: new Array(100).fill(pending) })).toBe(true);
     expect(asaasPaymentListHasMore({ data: [pending], hasMore: false })).toBe(false);
+  });
+
+  it("detects Asaas sandbox hosts and rejects production", () => {
+    expect(isAsaasSandboxBaseUrl("https://api-sandbox.asaas.com/v3")).toBe(true);
+    expect(isAsaasSandboxBaseUrl("https://sandbox.asaas.com/v3")).toBe(true);
+    expect(isAsaasSandboxBaseUrl("https://api.asaas.com/v3")).toBe(false);
   });
 
   it("requires POST when no Asaas payment exists", () => {

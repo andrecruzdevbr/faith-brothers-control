@@ -101,6 +101,7 @@ export function summarizeBillingProcessed(
   for (const row of processed) {
     switch (row.status) {
       case "generated":
+      case "sandbox_confirmed":
         summary.created += 1;
         break;
       case "sent_whatsapp":

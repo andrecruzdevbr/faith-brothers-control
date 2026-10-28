@@ -365,6 +365,9 @@ describe("wiring — cron day 12 and generate-monthly-billings payload", () => {
     expect(source).toContain("findExistingAsaasPaymentByReference");
     expect(source).toContain("resolveFinancialNoticeRecipient");
     expect(source).toContain("evaluateAutomaticMonthlyBoleto");
+    expect(source).toContain("SUPABASE_SERVICE_ROLE_KEY");
+    expect(source).toContain("sandboxConfirm");
+    expect(source).toContain("sandboxConfirm refused: Asaas is not sandbox");
     expect(source).toContain('.eq("requested_payment_method", "boleto")');
     expect(source).toContain("dryRun");
     expect(source).toContain("offset");
