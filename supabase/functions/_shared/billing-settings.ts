@@ -18,6 +18,9 @@ export type BillingProcessedEntry = {
   error?: string;
   asaasHttpStatus?: number;
   asaasDescription?: string;
+  amount?: number;
+  dueDate?: string;
+  referenceMonth?: string;
 };
 
 export type BillingRunSummary = {
@@ -31,6 +34,7 @@ export type BillingRunSummary = {
   whatsappSent: number;
   whatsappSkipped: number;
   errors: number;
+  dryRunEligible: number;
 };
 
 /** PostgREST may return one-to-one embeds as object or array. */
@@ -91,6 +95,7 @@ export function summarizeBillingProcessed(
     whatsappSent: 0,
     whatsappSkipped: 0,
     errors: 0,
+    dryRunEligible: 0,
   };
 
   for (const row of processed) {
@@ -125,6 +130,9 @@ export function summarizeBillingProcessed(
         break;
       case "failed":
         summary.errors += 1;
+        break;
+      case "dry_run_eligible":
+        summary.dryRunEligible += 1;
         break;
       case "whatsapp_sent":
       case "overdue_reminder_sent":

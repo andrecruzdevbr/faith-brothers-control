@@ -1,6 +1,7 @@
 import { corsHeaders, handleOptions } from "../_shared/cors.ts";
 import { requireAdmin, createServiceClient } from "../_shared/supabase.ts";
 import { getEnv } from "../_shared/env.ts";
+import { timingSafeEqualString } from "../_shared/timing-safe.ts";
 import { queueWhatsApp } from "../_shared/whatsapp.ts";
 import {
   hasValidStudentWhatsapp,
@@ -12,7 +13,7 @@ import { unwrapRelation } from "../_shared/asaas-billing.ts";
 import {
   buildBillingIssuedIdempotencyKey,
   buildBillingOverdueReminderIdempotencyKey,
-  resolveMonthlyBillingWhatsAppRecipient,
+  resolveFinancialNoticeRecipient,
 } from "../_shared/asaas-monthly-boleto.ts";
 import {
   OVERDUE_BILLING_STATUSES,
@@ -108,7 +109,7 @@ Deno.serve(async (req) => {
 
   try {
     const cronSecret = getEnv("BILLING_CRON_SECRET");
-    const isCronCall = req.headers.get("x-cron-secret") === cronSecret;
+    const isCronCall = timingSafeEqualString(req.headers.get("x-cron-secret"), cronSecret);
 
     let academyIdFilter: string | null = null;
     let body: SendBody = {};
@@ -289,7 +290,7 @@ Deno.serve(async (req) => {
       }
 
       const family = familyByStudentId.get(billing.student_id);
-      const billingRecipient = resolveMonthlyBillingWhatsAppRecipient({
+      const billingRecipient = resolveFinancialNoticeRecipient({
         studentId: billing.student_id,
         studentWhatsapp: student?.whatsapp ?? "",
         responsibleStudentId: family?.responsibleStudentId,

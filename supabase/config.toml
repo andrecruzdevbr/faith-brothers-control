@@ -1,9 +1,11 @@
 # Atualizado via `supabase link --project-ref wojqjxtaqjasnfhbotxi`
 project_id = "wojqjxtaqjasnfhbotxi"
 
+# Cron auth is x-cron-secret (timing-safe). JWT would block GitHub Actions.
 [functions.generate-monthly-billings]
 verify_jwt = false
 
+# Asaas sends asaas-access-token, not a Supabase JWT.
 [functions.asaas-webhook]
 verify_jwt = false
 

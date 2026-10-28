@@ -68,13 +68,22 @@ describe("billing generation concurrency", () => {
     ).toEqual({ action: "complete_claimed", billingId: "b4" });
   });
 
-  it("reprocesses failed/cancelado without inventing a second claim row", () => {
+  it("reprocesses falhou without inventing a second claim row", () => {
     expect(
       decideBillingGenerationAction(
         { id: "b5", status: "falhou", asaas_payment_id: null, updated_at: now.toISOString() },
         now,
       ),
     ).toEqual({ action: "reprocess_failed", billingId: "b5" });
+  });
+
+  it("does not emit a new payment for an existing cancelado competence", () => {
+    expect(
+      decideBillingGenerationAction(
+        { id: "b5c", status: "cancelado", asaas_payment_id: null, updated_at: now.toISOString() },
+        now,
+      ),
+    ).toEqual({ action: "already_exists", billingId: "b5c" });
   });
 
   it("does not recreate Asaas payment when falhou/cancelado already has asaas_payment_id", () => {

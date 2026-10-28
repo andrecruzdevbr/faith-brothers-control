@@ -29,20 +29,69 @@ export function buildAsaasPaymentIdempotencyKey(studentId: string, referenceMont
   return buildExternalReference(studentId, referenceMonth);
 }
 
-export function buildAsaasPaymentsLookupPath(externalReference: string): string {
-  return `/payments?externalReference=${encodeURIComponent(externalReference)}&limit=1`;
+/** Page size for Asaas GET /payments — never treat limit=1 as uniqueness. */
+export const ASAAS_PAYMENT_LOOKUP_PAGE_SIZE = 100;
+
+export function buildAsaasPaymentsLookupPath(
+  externalReference: string,
+  offset = 0,
+): string {
+  return `/payments?externalReference=${encodeURIComponent(externalReference)}&limit=${ASAAS_PAYMENT_LOOKUP_PAGE_SIZE}&offset=${offset}`;
 }
 
 export type AsaasPaymentListResponse = {
   data?: Array<Record<string, unknown>>;
+  hasMore?: boolean;
 };
 
+const ASAAS_REUSABLE_PAYMENT_STATUSES = new Set([
+  "PENDING",
+  "OVERDUE",
+  "CONFIRMED",
+  "RECEIVED",
+  "RECEIVED_IN_CASH",
+  "AWAITING_RISK_ANALYSIS",
+  "AWAITING_PAYMENT",
+  "DUNNING_REQUESTED",
+  "DUNNING_RECEIVED",
+]);
+
+function asaasPaymentStatus(payment: Record<string, unknown>): string {
+  return String(payment.status ?? "").toUpperCase();
+}
+
+function isAsaasPaymentRow(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export function asaasPaymentListHasMore(
+  response: AsaasPaymentListResponse,
+  pageSize = ASAAS_PAYMENT_LOOKUP_PAGE_SIZE,
+): boolean {
+  if (response.hasMore === true) return true;
+  return (response.data?.length ?? 0) >= pageSize;
+}
+
+/**
+ * Pick one payment among every match for the same externalReference.
+ * Prefer open/paid charges; deleted/refunded still count as existing so we do not POST again.
+ */
 export function pickExistingAsaasPayment(
   response: AsaasPaymentListResponse,
 ): Record<string, unknown> | null {
-  const first = response.data?.[0];
-  if (!first || typeof first !== "object") return null;
-  return first;
+  const rows = (response.data ?? []).filter(isAsaasPaymentRow);
+  if (rows.length === 0) return null;
+
+  const reusable = rows.find((row) => ASAAS_REUSABLE_PAYMENT_STATUSES.has(asaasPaymentStatus(row)));
+  if (reusable) return reusable;
+
+  const notDeleted = rows.find((row) => {
+    const status = asaasPaymentStatus(row);
+    return status !== "DELETED" && status !== "REFUNDED";
+  });
+  if (notDeleted) return notDeleted;
+
+  return rows[0];
 }
 
 export function shouldCreateAsaasPayment(existing: Record<string, unknown> | null): boolean {
@@ -52,8 +101,8 @@ export function shouldCreateAsaasPayment(existing: Record<string, unknown> | nul
 /** Marker written on the local claim row before any Asaas create call. */
 export const BILLING_GENERATION_CLAIM_MARKER = "generation_claim";
 
-/** Another worker owns a claim without payment until this age. */
-export const BILLING_GENERATION_STALE_MS = 120_000;
+/** Another worker owns a claim without payment until this age (covers Asaas timeout + retry). */
+export const BILLING_GENERATION_STALE_MS = 300_000;
 
 export type BillingGenerationSnapshot = {
   id: string;
@@ -89,7 +138,11 @@ export function decideBillingGenerationAction(
     return { action: "already_exists", billingId: existing.id };
   }
 
-  if (existing.status === "cancelado" || existing.status === "falhou") {
+  if (existing.status === "cancelado") {
+    return { action: "already_exists", billingId: existing.id };
+  }
+
+  if (existing.status === "falhou") {
     return { action: "reprocess_failed", billingId: existing.id };
   }
 

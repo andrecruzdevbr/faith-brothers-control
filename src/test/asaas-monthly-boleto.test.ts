@@ -29,6 +29,8 @@ import {
   calculateBoletoLateCharges,
   isWeekendIsoDate,
   preferBankSlipUrl,
+  evaluateAutomaticMonthlyBoleto,
+  resolveFinancialNoticeRecipient,
   resolveMonthlyBillingWhatsAppRecipient,
   shouldDispatchBillingWhatsApp,
   shouldGenerateMonthlyBoleto,
@@ -239,6 +241,17 @@ describe("Asaas API and WhatsApp failure handling", () => {
 });
 
 describe("family responsible and other payment methods", () => {
+  it("does not fall back to a dependent when a family responsible is configured without a valid phone", () => {
+    const resolved = resolveFinancialNoticeRecipient({
+      studentId: "member-a",
+      studentWhatsapp: "5531999000001",
+      responsibleStudentId: "resp",
+      responsiblePhone: "",
+    });
+    expect(resolved.source).toBe("family_responsible");
+    expect(resolved.recipient).toBe("");
+  });
+
   it("sends the family boleto to the financial responsible, not a sibling", () => {
     const siblingPhone = "5531999000002";
     const memberPhone = "5531999000001";
@@ -257,14 +270,55 @@ describe("family responsible and other payment methods", () => {
 
   it("skips students who chose card, pix or cash instead of boleto", () => {
     expect(shouldGenerateMonthlyBoleto("boleto")).toBe(true);
-    expect(shouldGenerateMonthlyBoleto(null)).toBe(true);
-    expect(shouldGenerateMonthlyBoleto("")).toBe(true);
+    expect(shouldGenerateMonthlyBoleto(null)).toBe(false);
+    expect(shouldGenerateMonthlyBoleto("")).toBe(false);
     expect(shouldGenerateMonthlyBoleto("pix")).toBe(false);
     expect(shouldGenerateMonthlyBoleto("cartao_credito")).toBe(false);
     expect(shouldGenerateMonthlyBoleto("cartao_debito")).toBe(false);
     expect(shouldGenerateMonthlyBoleto("dinheiro")).toBe(false);
     expect(skipReasonForNonBoletoPaymentMethod("pix")).toBe("skipped_non_boleto_payment_method");
     expect(skipReasonForNonBoletoPaymentMethod("boleto")).toBeNull();
+    expect(skipReasonForNonBoletoPaymentMethod(null)).toBe("skipped_non_boleto_payment_method");
+  });
+});
+
+describe("automatic monthly boleto eligibility gate", () => {
+  const eligible = {
+    status: "ativo",
+    requestedPaymentMethod: "boleto",
+    billingMode: "asaas_monthly",
+    monthlyPrice: 180,
+  };
+
+  it("allows only active students who chose boleto on an Asaas monthly plan", () => {
+    expect(evaluateAutomaticMonthlyBoleto(eligible)).toEqual({ eligible: true });
+  });
+
+  it("blocks pending approval, inactive, pix, card, family, prepaid and exempt", () => {
+    expect(evaluateAutomaticMonthlyBoleto({ ...eligible, status: "pendente_aprovacao" })).toEqual({
+      eligible: false,
+      reason: "skipped_inactive_or_pending",
+    });
+    expect(evaluateAutomaticMonthlyBoleto({ ...eligible, status: "inativo" })).toEqual({
+      eligible: false,
+      reason: "skipped_inactive_or_pending",
+    });
+    expect(evaluateAutomaticMonthlyBoleto({ ...eligible, requestedPaymentMethod: "pix" })).toEqual({
+      eligible: false,
+      reason: "skipped_non_boleto_payment_method",
+    });
+    expect(evaluateAutomaticMonthlyBoleto({ ...eligible, requestedPaymentMethod: "cartao_credito" })).toEqual({
+      eligible: false,
+      reason: "skipped_non_boleto_payment_method",
+    });
+    expect(evaluateAutomaticMonthlyBoleto({ ...eligible, billingMode: "machine_prepaid" })).toEqual({
+      eligible: false,
+      reason: "skipped_non_asaas_plan",
+    });
+    expect(evaluateAutomaticMonthlyBoleto({ ...eligible, monthlyPrice: 0 })).toEqual({
+      eligible: false,
+      reason: "skipped_zero_or_exempt_amount",
+    });
   });
 });
 
@@ -308,6 +362,15 @@ describe("wiring — cron day 12 and generate-monthly-billings payload", () => {
     expect(source).toContain("Idempotency-Key");
     expect(source).toContain("buildAsaasPaymentIdempotencyKey");
     expect(source).toContain("prepaid_cron_skip_reason indisponivel");
+    expect(source).toContain("findExistingAsaasPaymentByReference");
+    expect(source).toContain("resolveFinancialNoticeRecipient");
+    expect(source).toContain("evaluateAutomaticMonthlyBoleto");
+    expect(source).toContain('.eq("requested_payment_method", "boleto")');
+    expect(source).toContain("dryRun");
+    expect(source).toContain("offset");
+    expect(source).toContain("AbortController");
+    expect(source).toContain("Asaas timeout after");
+    expect(source).not.toContain("&limit=1");
   });
 
   it("uses a stable unique key per billing issue event", () => {
@@ -350,7 +413,7 @@ describe("wiring — cron day 12 and generate-monthly-billings payload", () => {
       resolve(ROOT, "supabase/functions/send-billing-whatsapp/index.ts"),
       "utf8",
     );
-    expect(source).toContain("resolveMonthlyBillingWhatsAppRecipient");
+    expect(source).toContain("resolveFinancialNoticeRecipient");
     expect(source).toContain("loadFamilyResponsibleMap");
     expect(source).toContain("recipient: billingRecipient");
     expect(source).not.toContain("recipient: student?.whatsapp ?? \"\"");

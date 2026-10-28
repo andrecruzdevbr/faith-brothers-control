@@ -22,6 +22,12 @@ type MockOptions = {
   updateError?: { message: string } | null;
   lookupData?: { id: string; status: string } | null;
   lookupError?: { message: string } | null;
+  familyData?: {
+    family_groups: {
+      financial_responsible_phone: string | null;
+      financial_responsible_student_id: string | null;
+    } | null;
+  } | null;
 };
 
 function createSupabaseMock(options: MockOptions = {}) {
@@ -70,6 +76,21 @@ function createSupabaseMock(options: MockOptions = {}) {
         };
       }
 
+      if (table === "family_members") {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: vi.fn(async () => ({
+                  data: options.familyData ?? null,
+                  error: null,
+                })),
+              })),
+            })),
+          })),
+        };
+      }
+
       throw new Error(`Unexpected table: ${table}`);
     }),
     _mocks: { neq: filterChain.neq, eq: filterChain.eq, update, lookupMaybeSingle },
@@ -81,7 +102,7 @@ function createSupabaseMock(options: MockOptions = {}) {
 describe("asaas-webhook idempotency", () => {
   it("first PAYMENT_CONFIRMED marks billing as paid and queues confirmation", async () => {
     const supabase = createSupabaseMock({ updateData: sampleBilling });
-    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string }) => ({ messageId: "msg-1", sent: true }));
+    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string; recipient?: string }) => ({ messageId: "msg-1", sent: true }));
 
     const result = await processAsaasWebhook({
       payload: { event: "PAYMENT_CONFIRMED", payment: { id: PAYMENT_ID } },
@@ -94,6 +115,33 @@ describe("asaas-webhook idempotency", () => {
     expect(supabase._mocks.neq).toHaveBeenCalledWith("status", "pago");
     expect(queueWhatsAppFn).toHaveBeenCalledTimes(1);
     expect(queueWhatsAppFn.mock.calls[0][0].messageType).toBe("payment_confirmation");
+    expect(queueWhatsAppFn.mock.calls[0][0].recipient).toBe("5511999999999");
+  });
+
+  it("sends payment confirmation to the family financial responsible", async () => {
+    const supabase = createSupabaseMock({
+      updateData: sampleBilling,
+      familyData: {
+        family_groups: {
+          financial_responsible_phone: "5531981044156",
+          financial_responsible_student_id: "resp-1",
+        },
+      },
+    });
+    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string; recipient: string }) => ({
+      messageId: "msg-1",
+      sent: true,
+    }));
+
+    await processAsaasWebhook({
+      payload: { event: "PAYMENT_CONFIRMED", payment: { id: PAYMENT_ID } },
+      supabase: supabase as never,
+      queueWhatsAppFn,
+    });
+
+    expect(queueWhatsAppFn).toHaveBeenCalledTimes(1);
+    expect(queueWhatsAppFn.mock.calls[0][0].recipient).toBe("5531981044156");
+    expect(queueWhatsAppFn.mock.calls[0][0].recipient).not.toBe(sampleBilling.students.whatsapp);
   });
 
   it("duplicate PAYMENT_CONFIRMED does not update again or queue another message", async () => {
@@ -101,7 +149,7 @@ describe("asaas-webhook idempotency", () => {
       updateData: null,
       lookupData: { id: "billing-1", status: "pago" },
     });
-    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string }) => ({ messageId: "msg-1", sent: true }));
+    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string; recipient?: string }) => ({ messageId: "msg-1", sent: true }));
 
     const result = await processAsaasWebhook({
       payload: { event: "PAYMENT_CONFIRMED", payment: { id: PAYMENT_ID } },
@@ -119,7 +167,7 @@ describe("asaas-webhook idempotency", () => {
       updateData: null,
       lookupData: null,
     });
-    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string }) => ({ messageId: "msg-1", sent: true }));
+    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string; recipient?: string }) => ({ messageId: "msg-1", sent: true }));
 
     const result = await processAsaasWebhook({
       payload: { event: "PAYMENT_CONFIRMED", payment: { id: PAYMENT_ID } },
@@ -133,7 +181,7 @@ describe("asaas-webhook idempotency", () => {
 
   it("invalid token returns 401", async () => {
     const supabase = createSupabaseMock();
-    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string }) => ({ messageId: "msg-1", sent: true }));
+    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string; recipient?: string }) => ({ messageId: "msg-1", sent: true }));
 
     const result = await handleAsaasWebhookRequest({
       accessToken: "wrong-token",
@@ -160,7 +208,7 @@ describe("validateAsaasWebhookToken", () => {
 describe("asaas homologation — late / refund / chargeback", () => {
   it("PAYMENT_OVERDUE on paid billing does not update (neq pago)", async () => {
     const supabase = createSupabaseMock({ updateData: null, lookupData: { id: "billing-1", status: "pago" } });
-    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string }) => ({ messageId: "msg-1", sent: true }));
+    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string; recipient?: string }) => ({ messageId: "msg-1", sent: true }));
 
     const result = await processAsaasWebhook({
       payload: { event: "PAYMENT_OVERDUE", payment: { id: PAYMENT_ID } },
@@ -177,7 +225,7 @@ describe("asaas homologation — late / refund / chargeback", () => {
 
   it("PAYMENT_DELETED on paid billing does not cancel", async () => {
     const supabase = createSupabaseMock({ updateData: null, lookupData: { id: "billing-1", status: "pago" } });
-    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string }) => ({ messageId: "msg-1", sent: true }));
+    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string; recipient?: string }) => ({ messageId: "msg-1", sent: true }));
 
     const result = await processAsaasWebhook({
       payload: { event: "PAYMENT_DELETED", payment: { id: PAYMENT_ID } },
@@ -195,7 +243,7 @@ describe("asaas homologation — late / refund / chargeback", () => {
     const supabase = createSupabaseMock({
       updateData: { ...sampleBilling, status: "cancelado" },
     });
-    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string }) => ({ messageId: "msg-1", sent: true }));
+    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string; recipient?: string }) => ({ messageId: "msg-1", sent: true }));
 
     const result = await processAsaasWebhook({
       payload: { event: "PAYMENT_REFUNDED", payment: { id: PAYMENT_ID } },
@@ -213,7 +261,7 @@ describe("asaas homologation — late / refund / chargeback", () => {
     const supabase = createSupabaseMock({
       updateData: { ...sampleBilling, status: "cancelado" },
     });
-    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string }) => ({ messageId: "msg-1", sent: true }));
+    const queueWhatsAppFn = vi.fn(async (_params: { messageType: string; recipient?: string }) => ({ messageId: "msg-1", sent: true }));
 
     await processAsaasWebhook({
       payload: { event: "PAYMENT_CHARGEBACK_REQUESTED", payment: { id: PAYMENT_ID } },
